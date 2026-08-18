@@ -261,21 +261,12 @@
       display: block;
       width: 100% !important;
       height: 100% !important;
+      image-rendering: auto;
     }
 
     #game-hud {
-      position: absolute;
-      top: calc(12px + var(--safe-top));
-      left: 16px;
-      right: 16px;
       display: none;
-      justify-content: space-between;
-      align-items: center;
-      z-index: 41;
-      pointer-events: none;
     }
-
-    #game-hud.active { display: flex; }
 
     #game-over {
       position: absolute;
@@ -581,7 +572,10 @@
       itemBomb: 'item_bomb.png',
       twixWhole: 'twix_whole.png',
       twixLeft: 'twix_left.png',
-      twixRight: 'twix_right.png'
+      twixRight: 'twix_right.png',
+      bgMms: 'm_background.png',
+      bgSnickers: 'snickers_background.png',
+      bgTwix: 'twix_background.png'
     };
 
     const state = {
@@ -839,8 +833,12 @@
     // ═══════════════════════════════════════════════════════════════
 
     function updateGameHud(score, timeLeft) {
-      els.gameScore.textContent = 'Score: ' + score;
-      els.gameTimer.textContent = timeLeft + 's';
+      const scene = state.phaserGame?.scene?.getScenes(true).find(s => s.refreshHud);
+      if (scene) {
+        scene.score = score;
+        scene.timeLeft = timeLeft;
+        scene.refreshHud();
+      }
     }
 
     function showGameOver(finalScore, reason) {
@@ -876,6 +874,103 @@
       const t1 = (-b - sqrtDisc) / (2 * a);
       const t2 = (-b + sqrtDisc) / (2 * a);
       return (t1 >= 0 && t1 <= 1) || (t2 >= 0 && t2 <= 1);
+    }
+
+    const UI_FONT = 'Arial, Helvetica, sans-serif';
+
+    function getPhaserDpr() {
+      return Math.min(Math.max(window.devicePixelRatio || 1, 1), 3);
+    }
+
+    function getViewportSize() {
+      return { width: window.innerWidth, height: window.innerHeight };
+    }
+
+    function crispTextStyle(fontSize, color = '#ffffff') {
+      const size = Math.round(fontSize);
+      return {
+        fontFamily: UI_FONT,
+        fontSize: size + 'px',
+        fontStyle: 'bold',
+        color,
+        stroke: '#000000',
+        strokeThickness: Math.max(5, Math.round(size * 0.14)),
+        shadow: {
+          offsetX: 2,
+          offsetY: 2,
+          color: '#000000',
+          blur: 3,
+          fill: true
+        },
+        padding: { x: Math.round(size * 0.35), y: Math.round(size * 0.22) }
+      };
+    }
+
+    function relayoutTextPanel(container) {
+      const label = container.label;
+      const padX = container.padX;
+      const padY = container.padY;
+      const size = parseFloat(String(label.style.fontSize)) || 24;
+      const bw = label.width + padX * 2;
+      const bh = label.height + padY * 2;
+      const radius = Math.min(22, size * 0.45);
+      container.panel.clear();
+      container.panel.fillStyle(0x000000, 0.58);
+      container.panel.fillRoundedRect(-bw / 2, -bh / 2, bw, bh, radius);
+      container.panel.lineStyle(2, 0xffffff, 0.18);
+      container.panel.strokeRoundedRect(-bw / 2, -bh / 2, bw, bh, radius);
+    }
+
+    function createTextPanel(scene, x, y, text, fontSize, depth = 200, color = '#ffffff') {
+      const label = scene.add.text(0, 0, text, crispTextStyle(fontSize, color)).setOrigin(0.5);
+      const padX = Math.max(18, fontSize * 0.55);
+      const padY = Math.max(12, fontSize * 0.35);
+      const panel = scene.add.graphics();
+      const container = scene.add.container(x, y, [panel, label]).setDepth(depth);
+      container.label = label;
+      container.panel = panel;
+      container.padX = padX;
+      container.padY = padY;
+      relayoutTextPanel(container);
+      return container;
+    }
+
+    function buildPhaserGameConfig(brand, gameDuration) {
+      const dpr = getPhaserDpr();
+      const { width, height } = getViewportSize();
+      return {
+        type: Phaser.AUTO,
+        parent: 'phaser-root',
+        width,
+        height,
+        backgroundColor: '#2c1810',
+        antialias: true,
+        render: {
+          antialias: true,
+          antialiasGL: true,
+          pixelArt: false,
+          roundPixels: false,
+          powerPreference: 'high-performance'
+        },
+        scale: {
+          mode: Phaser.Scale.RESIZE,
+          autoCenter: Phaser.Scale.CENTER_BOTH,
+          width,
+          height,
+          resolution: dpr
+        },
+        physics: {
+          default: 'arcade',
+          arcade: { gravity: { y: 0 }, debug: false }
+        },
+        callbacks: {
+          preBoot: (game) => {
+            game.registry.set('targetScene', brand.scene);
+            game.registry.set('gameDuration', gameDuration);
+          }
+        },
+        scene: [BootScene, CountdownScene, MMSGameScene, SnickersGameScene, TwixGameScene]
+      };
     }
 
     class BaseGameScene extends Phaser.Scene {
@@ -943,14 +1038,15 @@
       }
 
       createHudTimer() {
-        updateGameHud(this.score, this.timeLeft);
+        this.createPhaserHud();
+        this.refreshHud();
         this.timerEvent = this.time.addEvent({
           delay: 1000,
           loop: true,
           callback: () => {
             if (this.gameEnded) return;
             this.timeLeft--;
-            updateGameHud(this.score, this.timeLeft);
+            this.refreshHud();
             if (this.timeLeft <= 0) this.endGame("Time's up!");
           }
         });
@@ -958,7 +1054,7 @@
 
       addScore(delta) {
         this.score += delta;
-        updateGameHud(this.score, this.timeLeft);
+        this.refreshHud();
       }
 
       endGame(reason) {
@@ -983,6 +1079,87 @@
         if (ratio >= 1) sprite.setDisplaySize(maxDim, maxDim / ratio);
         else sprite.setDisplaySize(maxDim * ratio, maxDim);
       }
+
+      setCoverBackground(textureKey, fallbackColor) {
+        if (this.bgImage) {
+          this.bgImage.destroy();
+          this.bgImage = null;
+        }
+        if (this._bgResizeHandler) {
+          this.scale.off('resize', this._bgResizeHandler);
+          this._bgResizeHandler = null;
+        }
+        if (!this.textures.exists(textureKey)) {
+          this.cameras.main.setBackgroundColor(fallbackColor || '#000000');
+          return;
+        }
+        this.bgImage = this.add.image(0, 0, textureKey).setDepth(0);
+        this.refreshCoverBackground();
+        this._bgResizeHandler = () => this.refreshCoverBackground();
+        this.scale.on('resize', this._bgResizeHandler);
+        this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+          if (this._bgResizeHandler) this.scale.off('resize', this._bgResizeHandler);
+        });
+      }
+
+      refreshCoverBackground() {
+        if (!this.bgImage || !this.bgImage.active) return;
+        const w = this.scale.width;
+        const h = this.scale.height;
+        const tex = this.bgImage.texture.getSourceImage();
+        if (!tex || !tex.width) return;
+        this.bgImage.setPosition(w / 2, h / 2);
+        this.bgImage.setScale(Math.max(w / tex.width, h / tex.height));
+      }
+
+      createPhaserHud() {
+        const w = this.scale.width;
+        const timerSize = Math.max(24, w * 0.048);
+        const scoreSize = Math.max(22, w * 0.042);
+        const topInset = Math.max(18, w * 0.04);
+
+        this.hudTimerContainer = createTextPanel(
+          this, topInset + 56, topInset + 22, this.timeLeft + 's', timerSize, 250
+        );
+        this.hudScoreContainer = createTextPanel(
+          this, w - topInset - 96, topInset + 22, 'Score: ' + this.score, scoreSize, 250
+        );
+        this.hudTimerText = this.hudTimerContainer.label;
+        this.hudScoreText = this.hudScoreContainer.label;
+
+        if (this._hudResizeHandler) this.scale.off('resize', this._hudResizeHandler);
+        this._hudResizeHandler = () => this.layoutPhaserHud();
+        this.scale.on('resize', this._hudResizeHandler);
+        this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+          if (this._hudResizeHandler) this.scale.off('resize', this._hudResizeHandler);
+        });
+        this.layoutPhaserHud();
+      }
+
+      layoutPhaserHud() {
+        if (!this.hudTimerContainer || !this.hudScoreContainer) return;
+        const w = this.scale.width;
+        const topInset = Math.max(18, w * 0.04);
+        const timerSize = Math.max(24, w * 0.048);
+        const scoreSize = Math.max(22, w * 0.042);
+
+        this.hudTimerText.setStyle(crispTextStyle(timerSize));
+        this.hudTimerText.setText(this.timeLeft + 's');
+        this.hudScoreText.setStyle(crispTextStyle(scoreSize));
+        this.hudScoreText.setText('Score: ' + this.score);
+        this.hudTimerContainer.setPosition(topInset + 56, topInset + 22);
+        this.hudScoreContainer.setPosition(w - topInset - 96, topInset + 22);
+        relayoutTextPanel(this.hudTimerContainer);
+        relayoutTextPanel(this.hudScoreContainer);
+      }
+
+      refreshHud() {
+        if (!this.hudTimerText) return;
+        this.hudTimerText.setText(this.timeLeft + 's');
+        this.hudScoreText.setText('Score: ' + this.score);
+        relayoutTextPanel(this.hudTimerContainer);
+        relayoutTextPanel(this.hudScoreContainer);
+      }
     }
 
     class BootScene extends Phaser.Scene {
@@ -992,17 +1169,16 @@
         Object.entries(ASSET_FILES).forEach(([key, file]) => {
           this.load.image(key, file);
         });
-        this.load.image('twixWhole', ASSET_FILES.twixWhole);
-        this.load.image('twixLeft', ASSET_FILES.twixLeft);
-        this.load.image('twixRight', ASSET_FILES.twixRight);
-        this.load.image('itemBomb', ASSET_FILES.itemBomb);
+        this.load.image('bgMms', ASSET_FILES.bgMms);
+        this.load.image('bgSnickers', ASSET_FILES.bgSnickers);
+        this.load.image('bgTwix', ASSET_FILES.bgTwix);
         this.load.on('loaderror', (fileObj) => {
           console.error('Failed to load asset:', fileObj.key, fileObj.url);
         });
         this.load.on('complete', () => {
-          ['twixWhole', 'twixLeft', 'twixRight', 'itemBomb'].forEach((key) => {
+          ['twixWhole', 'twixLeft', 'twixRight', 'itemBomb', 'bgMms', 'bgSnickers', 'bgTwix'].forEach((key) => {
             if (!this.textures.exists(key)) {
-              console.error('Twix asset missing after preload:', key);
+              console.error('Asset missing after preload:', key);
             }
           });
         });
@@ -1021,20 +1197,16 @@
         const h = this.scale.height;
         this.cameras.main.setBackgroundColor('rgba(20, 12, 8, 0.92)');
 
-        this.add.rectangle(w / 2, h / 2, w, h, 0x000000, 0.45);
-        this.add.text(w / 2, h * 0.32, 'Get Ready!', {
-          fontFamily: 'system-ui, sans-serif',
-          fontSize: Math.round(w * 0.07) + 'px',
-          fontStyle: '700',
-          color: 'rgba(255,255,255,0.75)'
-        }).setOrigin(0.5);
+        this.add.rectangle(w / 2, h / 2, w, h, 0x000000, 0.45).setDepth(0);
 
-        const numText = this.add.text(w / 2, h * 0.5, '', {
-          fontFamily: 'system-ui, sans-serif',
-          fontSize: Math.round(w * 0.22) + 'px',
-          fontStyle: '900',
-          color: '#ffffff'
-        }).setOrigin(0.5);
+        const readySize = Math.max(28, w * 0.07);
+        this.readyPanel = createTextPanel(
+          this, w / 2, h * 0.32, 'Get Ready!', readySize, 20, 'rgba(255,255,255,0.9)'
+        );
+
+        const numSize = Math.max(72, w * 0.22);
+        this.numPanel = createTextPanel(this, w / 2, h * 0.5, '', numSize, 30);
+        const numText = this.numPanel.label;
 
         const steps = ['3', '2', '1', 'GO!'];
         let step = 0;
@@ -1051,10 +1223,11 @@
           const label = steps[step];
           numText.setText(label);
           numText.setColor(label === 'GO!' ? '#d4a056' : '#ffffff');
-          numText.setScale(0.35);
-          numText.setAlpha(0);
+          relayoutTextPanel(this.numPanel);
+          this.numPanel.setScale(0.35);
+          this.numPanel.setAlpha(0);
           this.tweens.add({
-            targets: numText,
+            targets: this.numPanel,
             scale: 1,
             alpha: 1,
             duration: 320,
@@ -1074,7 +1247,7 @@
       create() {
         const w = this.scale.width;
         const h = this.scale.height;
-        this.cameras.main.setBackgroundColor('#1a0820');
+        this.setCoverBackground('bgMms', '#1a0820');
 
         this.physics.world.setBounds(0, 0, w, h);
         this.physics.resume();
@@ -1083,15 +1256,11 @@
         this.targetIndex = 0;
         this.candies = this.physics.add.group();
 
-        this.promptBg = this.add.rectangle(w / 2, 110, w, 90, 0x000000, 0.55);
-        this.promptText = this.add.text(w / 2, 95, '', {
-          fontFamily: 'system-ui, sans-serif',
-          fontSize: '22px',
-          fontStyle: '800',
-          color: '#ffffff'
-        }).setOrigin(0.5);
+        const promptSize = Math.max(18, w * 0.042);
+        this.promptPanel = createTextPanel(this, w / 2, 110, '', promptSize, 40);
+        this.promptText = this.promptPanel.label;
 
-        this.targetIcon = this.add.image(w / 2, 135, MM_COLORS[0].key);
+        this.targetIcon = this.add.image(w / 2, 155, MM_COLORS[0].key).setDepth(41);
         this.fitSprite(this.targetIcon, Math.min(w * 0.08, 40));
 
         this.pickNewTarget();
@@ -1113,6 +1282,7 @@
         this.targetIndex = next;
         const target = MM_COLORS[this.targetIndex];
         this.promptText.setText('Pop ONLY ' + target.name.toUpperCase() + '!');
+        relayoutTextPanel(this.promptPanel);
         this.targetIcon.setTexture(target.key);
         this.fitSprite(this.targetIcon, Math.min(this.scale.width * 0.08, 40));
       }
@@ -1121,7 +1291,7 @@
         if (this.gameEnded) return;
         const color = Phaser.Utils.Array.GetRandom(MM_COLORS);
         const x = Phaser.Math.Between(40, this.scale.width - 40);
-        const candy = this.physics.add.image(x, -30, color.key);
+        const candy = this.physics.add.image(x, -30, color.key).setDepth(15);
         this.fitSprite(candy, Math.min(this.scale.width * 0.12, 56));
         candy.setCircle(candy.displayWidth * 0.42);
         candy.setBounce(0.1);
@@ -1176,7 +1346,7 @@
       create() {
         const w = this.scale.width;
         const h = this.scale.height;
-        this.cameras.main.setBackgroundColor('#1a0f05');
+        this.setCoverBackground('bgSnickers', '#1a0f05');
 
         this.physics.world.setBounds(0, 0, w, h);
         this.physics.resume();
@@ -1185,7 +1355,7 @@
 
         this.items = this.physics.add.group();
 
-        this.basket = this.physics.add.image(w / 2, h - 90, 'basket');
+        this.basket = this.physics.add.image(w / 2, h - 90, 'basket').setDepth(20);
         this.basket.setImmovable(true);
         this.basket.body.allowGravity = false;
         this.fitSprite(this.basket, Math.min(w * 0.34, 130));
@@ -1199,13 +1369,16 @@
 
         this.physics.add.overlap(this.basket, this.items, this.catchItem, null, this);
 
-        this.add.text(w / 2, 130, 'Drag basket — catch peanuts & caramel, avoid bombs!', {
-          fontFamily: 'system-ui, sans-serif',
-          fontSize: '15px',
-          color: 'rgba(255,255,255,0.75)',
-          align: 'center',
-          wordWrap: { width: w - 40 }
-        }).setOrigin(0.5);
+        const hintSize = Math.max(14, w * 0.032);
+        createTextPanel(
+          this,
+          w / 2,
+          130,
+          'Drag basket — catch peanuts & caramel, avoid bombs!',
+          hintSize,
+          35,
+          'rgba(255,255,255,0.92)'
+        );
 
         this.startSpawnLoop(() => this.spawnItem(), 1150, 680);
         this.startDifficultyRamp();
@@ -1230,7 +1403,7 @@
         }
 
         const x = Phaser.Math.Between(40, this.scale.width - 40);
-        const item = this.physics.add.image(x, -40, key);
+        const item = this.physics.add.image(x, -40, key).setDepth(15);
         this.fitSprite(item, Math.min(this.scale.width * 0.11, size));
         item.setCircle(Math.min(item.displayWidth, item.displayHeight) * 0.42);
         item.setData('kind', kind);
@@ -1272,7 +1445,7 @@
       create() {
         const w = this.scale.width;
         const h = this.scale.height;
-        this.cameras.main.setBackgroundColor('#2c1810');
+        this.setCoverBackground('bgTwix', '#2c1810');
 
         this.physics.world.setBounds(0, 0, w, h);
         this.physics.resume();
@@ -1499,36 +1672,12 @@
       updateGameHud(0, gameDuration);
       els.hudScore.textContent = brand.title;
       els.gameLayer.classList.add('active');
-      els.gameHud.classList.add('active');
       els.hud.style.opacity = '0';
       els.hud.style.pointerEvents = 'none';
       els.scanHint.classList.add('hidden');
       els.demoPicker.classList.remove('visible');
 
-      state.phaserGame = new Phaser.Game({
-        type: Phaser.AUTO,
-        parent: 'phaser-root',
-        width: window.innerWidth,
-        height: window.innerHeight,
-        backgroundColor: '#2c1810',
-        scale: {
-          mode: Phaser.Scale.RESIZE,
-          autoCenter: Phaser.Scale.CENTER_BOTH,
-          width: window.innerWidth,
-          height: window.innerHeight
-        },
-        physics: {
-          default: 'arcade',
-          arcade: { gravity: { y: 0 }, debug: false }
-        },
-        callbacks: {
-          preBoot: (game) => {
-            game.registry.set('targetScene', brand.scene);
-            game.registry.set('gameDuration', gameDuration);
-          }
-        },
-        scene: [BootScene, CountdownScene, MMSGameScene, SnickersGameScene, TwixGameScene]
-      });
+      state.phaserGame = new Phaser.Game(buildPhaserGameConfig(brand, gameDuration));
     }
 
     function returnToScanner() {
@@ -1536,7 +1685,6 @@
       state.gameActive = false;
       state.score = 0;
       els.gameLayer.classList.remove('active');
-      els.gameHud.classList.remove('active');
       els.gameOver.classList.remove('visible');
       els.hud.style.opacity = '';
       els.hud.style.pointerEvents = '';

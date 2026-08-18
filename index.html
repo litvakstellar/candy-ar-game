@@ -1,0 +1,1599 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <title>Mars AR Candy Selector</title>
+
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8.5/dist/teachablemachine-image.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
+
+  <style>
+    :root {
+      --bg: #0a0a12;
+      --surface: rgba(255, 255, 255, 0.08);
+      --text: #f5f5f7;
+      --muted: rgba(255, 255, 255, 0.55);
+      --accent: #ff3b30;
+      --safe-top: env(safe-area-inset-top, 0px);
+      --safe-bottom: env(safe-area-inset-bottom, 0px);
+      --brand-color: #ff3b30;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      user-select: none;
+      transition: background 0.3s ease;
+    }
+
+    body.brand-detected { background: #22c55e; }
+    body.brand-detected #app { background: #22c55e; }
+
+    #app { position: fixed; inset: 0; transition: background 0.3s ease; }
+
+    #camera-wrap {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+      z-index: 0;
+    }
+
+    #webcam { width: 100%; height: 100%; object-fit: cover; }
+    #predict-canvas { display: none; }
+
+    #camera-overlay {
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(180deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.15) 30%, rgba(0,0,0,0.15) 70%, rgba(0,0,0,0.65) 100%);
+      pointer-events: none;
+    }
+
+    #predictions-overlay {
+      position: absolute;
+      top: calc(12px + var(--safe-top));
+      left: 12px;
+      right: 12px;
+      z-index: 8;
+      background: rgba(0, 0, 0, 0.78);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 12px;
+      padding: 12px 14px;
+      font-size: 15px;
+      font-weight: 700;
+      line-height: 1.6;
+      pointer-events: none;
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+    }
+
+    #predictions-overlay .pred-line { display: block; }
+    #predictions-overlay .pred-line.leading { color: #4ade80; }
+
+    #brand-alert {
+      position: absolute;
+      inset: 0;
+      z-index: 12;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      font-size: clamp(48px, 14vw, 96px);
+      font-weight: 900;
+      color: #fff;
+      text-shadow: 0 4px 24px rgba(0, 0, 0, 0.45);
+      pointer-events: none;
+      padding: 24px;
+    }
+
+    #brand-alert.visible { display: flex; }
+
+    #hud {
+      position: relative;
+      z-index: 10;
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      padding: calc(120px + var(--safe-top)) 16px calc(16px + var(--safe-bottom));
+      pointer-events: none;
+    }
+
+    #hud > * { pointer-events: auto; }
+
+    .top-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+
+    .logo {
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      opacity: 0.85;
+    }
+
+    .score-pill {
+      background: var(--surface);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 999px;
+      padding: 6px 14px;
+      font-size: 14px;
+      font-weight: 600;
+      min-width: 72px;
+      text-align: center;
+    }
+
+    #detection-panel {
+      margin-top: 12px;
+      background: var(--surface);
+      backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 16px;
+      padding: 12px 14px;
+      transition: border-color 0.3s, box-shadow 0.3s;
+    }
+
+    #detection-panel.active {
+      border-color: var(--brand-color);
+      box-shadow: 0 0 24px color-mix(in srgb, var(--brand-color) 40%, transparent);
+    }
+
+    .detection-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+
+    #detected-class { font-size: 22px; font-weight: 800; line-height: 1.1; }
+
+    .confidence-bar-wrap {
+      margin-top: 10px;
+      height: 6px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+
+    #confidence-bar {
+      height: 100%;
+      width: 0%;
+      background: var(--brand-color);
+      border-radius: 3px;
+      transition: width 0.15s ease;
+    }
+
+    #confidence-text { font-size: 12px; color: var(--muted); margin-top: 5px; }
+
+    .class-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+
+    .chip {
+      font-size: 10px;
+      font-weight: 600;
+      padding: 4px 8px;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--muted);
+    }
+
+    .chip.leading {
+      color: #fff;
+      background: color-mix(in srgb, var(--brand-color) 30%, transparent);
+      border: 1px solid var(--brand-color);
+    }
+
+    #center-content {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 16px 0;
+      pointer-events: none;
+    }
+
+    #brand-badge {
+      width: 88px;
+      height: 88px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 36px;
+      background: var(--surface);
+      border: 3px solid var(--brand-color);
+      margin-bottom: 16px;
+      opacity: 0;
+      transform: scale(0.5);
+      transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    #brand-badge.visible { opacity: 1; transform: scale(1); }
+
+    #status-title {
+      font-size: clamp(22px, 6vw, 32px);
+      font-weight: 800;
+      line-height: 1.15;
+      max-width: 280px;
+    }
+
+    #status-subtitle {
+      font-size: 14px;
+      color: var(--muted);
+      margin-top: 8px;
+      max-width: 300px;
+      line-height: 1.4;
+    }
+
+    #game-layer {
+      position: absolute;
+      inset: 0;
+      z-index: 40;
+      display: none;
+      touch-action: none;
+    }
+
+    #game-layer.active { display: block; }
+
+    #phaser-root {
+      width: 100%;
+      height: 100%;
+      touch-action: none;
+    }
+
+    #phaser-root canvas {
+      display: block;
+      width: 100% !important;
+      height: 100% !important;
+    }
+
+    #game-hud {
+      position: absolute;
+      top: calc(12px + var(--safe-top));
+      left: 16px;
+      right: 16px;
+      display: none;
+      justify-content: space-between;
+      align-items: center;
+      z-index: 41;
+      pointer-events: none;
+    }
+
+    #game-hud.active { display: flex; }
+
+    #game-over {
+      position: absolute;
+      inset: 0;
+      z-index: 42;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0, 0, 0, 0.82);
+      backdrop-filter: blur(12px);
+      padding: 24px;
+    }
+
+    #game-over.visible { display: flex; flex-direction: column; }
+
+    .game-over-card { text-align: center; max-width: 320px; }
+    .game-over-card h2 { font-size: clamp(32px, 8vw, 48px); font-weight: 900; margin-bottom: 8px; }
+    .game-over-card p { color: var(--muted); margin-bottom: 8px; font-size: 16px; }
+
+    #game-over-score {
+      font-size: 28px;
+      font-weight: 800;
+      color: #fff;
+      margin-bottom: 24px !important;
+    }
+
+    #start-screen {
+      position: absolute;
+      inset: 0;
+      z-index: 20;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: rgba(10, 10, 18, 0.92);
+      backdrop-filter: blur(20px);
+      padding: 32px 24px;
+      text-align: center;
+      transition: opacity 0.5s, visibility 0.5s;
+    }
+
+    #start-screen.hidden { opacity: 0; visibility: hidden; pointer-events: none; }
+
+    #start-screen h1 {
+      font-size: clamp(28px, 8vw, 42px);
+      font-weight: 900;
+      line-height: 1.1;
+      margin-bottom: 12px;
+      background: linear-gradient(135deg, #ff3b30, #ff9500, #ffcc00);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    #start-screen p { color: var(--muted); font-size: 15px; line-height: 1.5; max-width: 320px; margin-bottom: 28px; }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #ff3b30, #ff6b35);
+      color: #fff;
+      border: none;
+      border-radius: 14px;
+      padding: 16px 40px;
+      font-size: 17px;
+      font-weight: 700;
+      cursor: pointer;
+      box-shadow: 0 8px 24px rgba(255, 59, 48, 0.4);
+      min-height: 52px;
+      min-width: 200px;
+    }
+
+    .btn-primary:active { transform: scale(0.96); }
+
+    .demo-toggle {
+      margin-top: 16px;
+      font-size: 13px;
+      color: var(--muted);
+      background: none;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 10px;
+      padding: 10px 18px;
+      cursor: pointer;
+    }
+
+    body.brand-mms { --brand-color: #ff3b30; }
+    body.brand-twix { --brand-color: #d4a056; }
+    body.brand-snickers { --brand-color: #4a2c0a; }
+    body.brand-other { --brand-color: #636366; }
+
+    #loading {
+      position: absolute;
+      inset: 0;
+      z-index: 50;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: rgba(10, 10, 18, 0.85);
+      gap: 16px;
+    }
+
+    #loading.visible { display: flex; }
+
+    .spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid rgba(255, 255, 255, 0.15);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .scan-hint {
+      position: absolute;
+      bottom: calc(24px + var(--safe-bottom));
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 10;
+      background: var(--surface);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 999px;
+      padding: 10px 20px;
+      font-size: 13px;
+      font-weight: 600;
+      white-space: nowrap;
+      animation: pulse 2s ease-in-out infinite;
+      pointer-events: none;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 0.7; transform: translateX(-50%) scale(1); }
+      50% { opacity: 1; transform: translateX(-50%) scale(1.03); }
+    }
+
+    .scan-hint.hidden { display: none; }
+
+    #demo-picker {
+      display: none;
+      position: absolute;
+      bottom: calc(80px + var(--safe-bottom));
+      left: 16px;
+      right: 16px;
+      z-index: 15;
+      background: var(--surface);
+      backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 16px;
+      padding: 12px;
+      gap: 8px;
+    }
+
+    #demo-picker.visible { display: flex; flex-wrap: wrap; justify-content: center; }
+
+    .demo-btn {
+      flex: 1 1 40%;
+      min-width: 120px;
+      padding: 12px;
+      border-radius: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      background: rgba(255, 255, 255, 0.06);
+      color: #fff;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div id="camera-wrap">
+      <video id="webcam" autoplay playsinline muted></video>
+      <canvas id="predict-canvas" width="640" height="480" aria-hidden="true"></canvas>
+      <div id="camera-overlay"></div>
+
+      <div id="predictions-overlay" aria-live="polite">
+        <span class="pred-line" data-class="M&Ms">M&amp;Ms: 0%</span>
+        <span class="pred-line" data-class="Snickers">Snickers: 0%</span>
+        <span class="pred-line" data-class="Twix">Twix: 0%</span>
+        <span class="pred-line" data-class="Other">Other: 0%</span>
+      </div>
+
+      <div id="brand-alert"></div>
+    </div>
+
+    <div id="game-layer">
+      <div id="phaser-root"></div>
+      <div id="game-hud">
+        <div class="score-pill" id="game-timer">60s</div>
+        <div class="score-pill" id="game-score">Score: 0</div>
+      </div>
+      <div id="game-over">
+        <div class="game-over-card">
+          <h2>Game Over</h2>
+          <p id="game-over-reason">Time's up!</p>
+          <p id="game-over-score">Score: 0</p>
+          <button class="btn-primary" id="scan-again-btn" type="button">Scan Again</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="hud">
+      <div class="top-bar">
+        <div class="logo">Mars AR</div>
+        <div class="score-pill" id="hud-score">Scan</div>
+      </div>
+      <div id="detection-panel">
+        <div class="detection-label">Detection</div>
+        <div id="detected-class">Waiting…</div>
+        <div class="confidence-bar-wrap"><div id="confidence-bar"></div></div>
+        <div id="confidence-text">0% confidence</div>
+        <div class="class-chips" id="class-chips"></div>
+      </div>
+      <div id="center-content">
+        <div id="brand-badge"></div>
+        <div id="status-title">Point at a product</div>
+        <div id="status-subtitle">Hold M&amp;Ms, Twix, or Snickers in front of the camera to unlock a game</div>
+      </div>
+    </div>
+
+    <div class="scan-hint" id="scan-hint">📷 Scan a candy bar to play</div>
+
+    <div id="demo-picker">
+      <button class="demo-btn" data-class="M&Ms">🟡 M&amp;Ms</button>
+      <button class="demo-btn" data-class="Twix">🍫 Twix</button>
+      <button class="demo-btn" data-class="Snickers">🥜 Snickers</button>
+      <button class="demo-btn" data-class="Other">⬜ Other</button>
+    </div>
+
+    <div id="loading">
+      <div class="spinner"></div>
+      <div id="loading-text">Loading model…</div>
+    </div>
+
+    <div id="start-screen">
+      <h1>Candy Selector</h1>
+      <p>Scan Mars candy products to unlock brand mini-games.</p>
+      <button class="btn-primary" id="start-btn" type="button">Start Camera</button>
+      <button class="demo-toggle" id="demo-toggle" type="button">Enable Demo Mode</button>
+    </div>
+  </div>
+
+  <script>
+    const CONFIG = {
+      MODEL_URL: 'https://teachablemachine.withgoogle.com/models/rt4oYzfrD/',
+      CONFIDENCE_THRESHOLD: 0.85,
+      DETECTION_INTERVAL_MS: 200,
+      TRIGGER_HOLD_MS: 1000,
+      GAME_DURATION_SEC: 60,
+      TWIX_GAME_DURATION_SEC: 60,
+      CLASSES: ['M&Ms', 'Snickers', 'Twix', 'Other'],
+      CANDY_CLASSES: ['M&Ms', 'Snickers', 'Twix'],
+      BRAND_INFO: {
+        'M&Ms': {
+          emoji: '🔴',
+          color: '#ff3b30',
+          title: 'M&Ms Color Popper',
+          subtitle: 'Pop only the target color!',
+          gameMode: 'mms-color-popper',
+          scene: 'MMSGameScene'
+        },
+        'Snickers': {
+          emoji: '🥜',
+          color: '#8B4513',
+          title: 'Snickers Basket Catch',
+          subtitle: 'Drag the basket — catch peanuts & caramel, avoid bombs!',
+          gameMode: 'snickers-basket',
+          scene: 'SnickersGameScene'
+        },
+        'Twix': {
+          emoji: '🍫',
+          color: '#d4a056',
+          title: 'Twix Slicer',
+          subtitle: 'Swipe to slice Twix bars — avoid the bombs!',
+          gameMode: 'twix-slicer',
+          scene: 'TwixGameScene'
+        },
+        'Other': {
+          emoji: '📷',
+          color: '#636366',
+          title: 'Scan a Product',
+          subtitle: 'Point your camera at M&Ms, Twix, or Snickers',
+          gameMode: null,
+          scene: null
+        }
+      }
+    };
+
+    const MM_COLORS = [
+      { name: 'Red', key: 'mRed', hex: 0xff3b30 },
+      { name: 'Yellow', key: 'mYellow', hex: 0xffcc00 },
+      { name: 'Blue', key: 'mBlue', hex: 0x007aff }
+    ];
+
+    const ASSET_FILES = {
+      mRed: 'm_red.png',
+      mYellow: 'm_yellow.png',
+      mBlue: 'm_blue.png',
+      basket: 'basket.png',
+      itemPeanut: 'item_peanut.png',
+      itemCaramel: 'item_caramel.png',
+      itemBomb: 'item_bomb.png',
+      twixWhole: 'twix_whole.png',
+      twixLeft: 'twix_left.png',
+      twixRight: 'twix_right.png'
+    };
+
+    const state = {
+      model: null,
+      webcam: null,
+      predictCtx: null,
+      demoMode: false,
+      currentClass: 'Other',
+      currentConfidence: 0,
+      predictions: {},
+      gameActive: false,
+      phaserGame: null,
+      triggerTimer: null,
+      triggerClass: null,
+      detectionRunning: false,
+      score: 0
+    };
+
+    const $ = (sel) => document.querySelector(sel);
+    const els = {
+      webcam: $('#webcam'),
+      startScreen: $('#start-screen'),
+      startBtn: $('#start-btn'),
+      demoToggle: $('#demo-toggle'),
+      loading: $('#loading'),
+      loadingText: $('#loading-text'),
+      detectedClass: $('#detected-class'),
+      confidenceBar: $('#confidence-bar'),
+      confidenceText: $('#confidence-text'),
+      classChips: $('#class-chips'),
+      detectionPanel: $('#detection-panel'),
+      brandBadge: $('#brand-badge'),
+      statusTitle: $('#status-title'),
+      statusSubtitle: $('#status-subtitle'),
+      scanHint: $('#scan-hint'),
+      demoPicker: $('#demo-picker'),
+      gameLayer: $('#game-layer'),
+      phaserRoot: $('#phaser-root'),
+      gameHud: $('#game-hud'),
+      gameScore: $('#game-score'),
+      gameTimer: $('#game-timer'),
+      gameOver: $('#game-over'),
+      gameOverReason: $('#game-over-reason'),
+      gameOverScore: $('#game-over-score'),
+      scanAgainBtn: $('#scan-again-btn'),
+      hudScore: $('#hud-score'),
+      hud: $('#hud'),
+      predictionsOverlay: $('#predictions-overlay'),
+      brandAlert: $('#brand-alert'),
+      predictCanvas: $('#predict-canvas')
+    };
+
+    // ═══════════════════════════════════════════════════════════════
+    // Camera & prediction (unchanged working logic)
+    // ═══════════════════════════════════════════════════════════════
+
+    function assertLibrariesLoaded() {
+      if (typeof window.tf === 'undefined') {
+        throw new Error('TensorFlow.js failed to load. Check your internet connection.');
+      }
+      if (typeof window.tmImage === 'undefined') {
+        throw new Error('Teachable Machine image library failed to load. Check your internet connection.');
+      }
+      return { tf: window.tf, tmImage: window.tmImage };
+    }
+
+    function assertPhaserLoaded() {
+      if (typeof window.Phaser === 'undefined') {
+        throw new Error('Phaser.js failed to load. Check your internet connection.');
+      }
+    }
+
+    function initClassChips() {
+      els.classChips.innerHTML = CONFIG.CLASSES.map(cls =>
+        `<span class="chip" data-class="${cls}">${cls}</span>`
+      ).join('');
+    }
+
+    async function startApp() {
+      els.startScreen.classList.add('hidden');
+      showLoading('Starting camera…');
+      try {
+        assertLibrariesLoaded();
+        assertPhaserLoaded();
+        await initWebcam();
+        await initModel();
+        hideLoading();
+        startDetection();
+      } catch (err) {
+        hideLoading();
+        alert('Could not start: ' + err.message + '\n\nTry enabling Demo Mode to test without a camera/model.');
+        els.startScreen.classList.remove('hidden');
+      }
+    }
+
+    async function initWebcam() {
+      const { tmImage } = assertLibrariesLoaded();
+      state.webcam = new tmImage.Webcam(640, 480, false);
+      await state.webcam.setup({ facingMode: 'environment' });
+      await state.webcam.play();
+      els.webcam.srcObject = state.webcam.webcam.srcObject;
+      await els.webcam.play();
+      state.predictCtx = els.predictCanvas.getContext('2d', { willReadFrequently: true });
+    }
+
+    function getPredictInput() {
+      const video = state.webcam.webcam;
+      state.predictCtx.drawImage(video, 0, 0, els.predictCanvas.width, els.predictCanvas.height);
+      return els.predictCanvas;
+    }
+
+    async function initModel() {
+      if (!CONFIG.MODEL_URL) {
+        state.demoMode = true;
+        els.demoPicker.classList.add('visible');
+        els.demoToggle.textContent = 'Demo Mode: ON';
+        return;
+      }
+      const { tmImage } = assertLibrariesLoaded();
+      showLoading('Loading AI model…');
+      const modelURL = CONFIG.MODEL_URL.endsWith('/') ? CONFIG.MODEL_URL : CONFIG.MODEL_URL + '/';
+      state.model = await tmImage.load(modelURL + 'model.json', modelURL + 'metadata.json');
+      console.log('Model loaded from:', modelURL);
+    }
+
+    function startDetection() {
+      if (state.detectionRunning) return;
+      state.detectionRunning = true;
+      detectLoop();
+    }
+
+    async function detectLoop() {
+      if (!state.detectionRunning) return;
+      if (!state.gameActive) {
+        if (!state.demoMode && state.model && state.webcam) {
+          const predictions = await state.model.predict(getPredictInput());
+          console.log('Raw predictions:', predictions);
+          updatePredictions(predictions);
+        }
+        processDetection();
+      }
+      setTimeout(detectLoop, CONFIG.DETECTION_INTERVAL_MS);
+    }
+
+    function updatePredictions(predictions) {
+      const map = {};
+      let topClass = 'Other';
+      let topProb = 0;
+      predictions.forEach(p => {
+        map[p.className] = p.probability;
+        if (p.probability > topProb) {
+          topProb = p.probability;
+          topClass = p.className;
+        }
+      });
+      CONFIG.CLASSES.forEach(cls => { if (!(cls in map)) map[cls] = 0; });
+      state.predictions = map;
+      state.currentClass = topClass;
+      state.currentConfidence = topProb;
+    }
+
+    function updatePredictionsOverlay() {
+      let matchedCandy = null;
+      let matchedConfidence = 0;
+      CONFIG.CANDY_CLASSES.forEach(cls => {
+        const prob = state.predictions[cls] || 0;
+        if (prob >= CONFIG.CONFIDENCE_THRESHOLD && prob > matchedConfidence) {
+          matchedCandy = cls;
+          matchedConfidence = prob;
+        }
+      });
+      els.predictionsOverlay.querySelectorAll('.pred-line').forEach(line => {
+        const cls = line.dataset.class;
+        const prob = state.predictions[cls] || 0;
+        line.textContent = `${cls}: ${Math.round(prob * 100)}%`;
+        line.classList.toggle('leading', cls === state.currentClass);
+      });
+      const isDetected = matchedCandy !== null;
+      document.body.classList.toggle('brand-detected', isDetected);
+      if (isDetected) {
+        els.brandAlert.textContent = matchedCandy + '!';
+        els.brandAlert.classList.add('visible');
+      } else {
+        els.brandAlert.textContent = '';
+        els.brandAlert.classList.remove('visible');
+      }
+      return { matchedCandy, matchedConfidence };
+    }
+
+    function setDemoClass(className, confidence = 0.95) {
+      CONFIG.CLASSES.forEach(cls => {
+        state.predictions[cls] = cls === className ? confidence : 0.02;
+      });
+      state.currentClass = className;
+      state.currentConfidence = confidence;
+      processDetection();
+    }
+
+    function processDetection() {
+      const cls = state.currentClass;
+      const conf = state.currentConfidence;
+      const brand = CONFIG.BRAND_INFO[cls] || CONFIG.BRAND_INFO['Other'];
+      const { matchedCandy } = updatePredictionsOverlay();
+
+      document.body.className = document.body.classList.contains('brand-detected')
+        ? 'brand-detected brand-' + cls.toLowerCase().replace(/&/g, '').replace(/\s/g, '')
+        : 'brand-' + cls.toLowerCase().replace(/&/g, '').replace(/\s/g, '');
+
+      els.detectedClass.textContent = cls;
+      els.detectedClass.style.color = brand.color;
+      els.confidenceBar.style.width = (conf * 100) + '%';
+      els.confidenceText.textContent = Math.round(conf * 100) + '% confidence' +
+        (matchedCandy ? ' — ' + matchedCandy + ' detected!' : '');
+
+      els.classChips.querySelectorAll('.chip').forEach(chip => {
+        const c = chip.dataset.class;
+        chip.classList.toggle('leading', c === cls);
+        chip.textContent = `${c} ${Math.round((state.predictions[c] || 0) * 100)}%`;
+      });
+
+      const candyProb = CONFIG.CANDY_CLASSES.reduce((max, c) =>
+        Math.max(max, state.predictions[c] || 0), 0);
+      const isTriggered = candyProb >= CONFIG.CONFIDENCE_THRESHOLD;
+
+      els.detectionPanel.classList.toggle('active', isTriggered);
+      els.brandBadge.textContent = brand.emoji;
+      els.brandBadge.style.borderColor = brand.color;
+      els.brandBadge.classList.toggle('visible', isTriggered);
+      els.statusTitle.textContent = isTriggered ? (matchedCandy || brand.title) : 'Point at a product';
+      els.statusSubtitle.textContent = isTriggered ? brand.subtitle : 'Hold M&Ms, Twix, or Snickers in front of the camera to unlock a game';
+      els.scanHint.classList.toggle('hidden', isTriggered);
+
+      const launchClass = matchedCandy || cls;
+      if (isTriggered && launchClass !== 'Other' && !state.gameActive) {
+        if (state.triggerClass !== launchClass) {
+          clearTrigger();
+          state.triggerClass = launchClass;
+          state.triggerTimer = setTimeout(() => launchGame(launchClass), CONFIG.TRIGGER_HOLD_MS);
+        }
+      } else {
+        clearTrigger();
+      }
+    }
+
+    function clearTrigger() {
+      if (state.triggerTimer) {
+        clearTimeout(state.triggerTimer);
+        state.triggerTimer = null;
+      }
+      state.triggerClass = null;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Phaser helpers
+    // ═══════════════════════════════════════════════════════════════
+
+    function updateGameHud(score, timeLeft) {
+      els.gameScore.textContent = 'Score: ' + score;
+      els.gameTimer.textContent = timeLeft + 's';
+    }
+
+    function showGameOver(finalScore, reason) {
+      els.gameOverReason.textContent = reason || "Time's up!";
+      els.gameOverScore.textContent = 'Score: ' + finalScore;
+      els.gameOver.classList.add('visible');
+    }
+
+    function destroyPhaserGame() {
+      if (state.phaserGame) {
+        try {
+          state.phaserGame.destroy(true);
+        } catch (e) {
+          console.warn('Phaser destroy:', e);
+        }
+        state.phaserGame = null;
+      }
+      if (els.phaserRoot) els.phaserRoot.innerHTML = '';
+    }
+
+    function segmentIntersectsCircle(x1, y1, x2, y2, cx, cy, r) {
+      const dx = x2 - x1;
+      const dy = y2 - y1;
+      const fx = x1 - cx;
+      const fy = y1 - cy;
+      const a = dx * dx + dy * dy;
+      if (a === 0) return Math.hypot(fx, fy) <= r;
+      const b = 2 * (fx * dx + fy * dy);
+      const c = fx * fx + fy * fy - r * r;
+      const disc = b * b - 4 * a * c;
+      if (disc < 0) return false;
+      const sqrtDisc = Math.sqrt(disc);
+      const t1 = (-b - sqrtDisc) / (2 * a);
+      const t2 = (-b + sqrtDisc) / (2 * a);
+      return (t1 >= 0 && t1 <= 1) || (t2 >= 0 && t2 <= 1);
+    }
+
+    class BaseGameScene extends Phaser.Scene {
+      init() {
+        this.score = 0;
+        this.timeLeft = this.registry.get('gameDuration') || CONFIG.GAME_DURATION_SEC;
+        this.gameEnded = false;
+        this.difficultyStartTime = null;
+        this.difficultyT = 0;
+        this.spawnLoopEvent = null;
+        this.difficultyEvent = null;
+      }
+
+      startDifficultyRamp() {
+        this.difficultyStartTime = this.time.now;
+        this.difficultyT = 0;
+        this.onDifficultyChanged(0);
+        if (this.difficultyEvent) this.difficultyEvent.remove(false);
+        this.difficultyEvent = this.time.addEvent({
+          delay: 2000,
+          loop: true,
+          callback: () => {
+            if (this.gameEnded) return;
+            const elapsed = (this.time.now - this.difficultyStartTime) / 1000;
+            let t = 0;
+            if (elapsed >= 10) {
+              const steps = Math.floor((elapsed - 10) / 4);
+              t = Math.min(1, steps * 0.14 + 0.12);
+            }
+            if (Math.abs(t - this.difficultyT) > 0.001) {
+              this.difficultyT = t;
+              this.onDifficultyChanged(t);
+            }
+          }
+        });
+      }
+
+      diff(easy, hard) {
+        return Phaser.Math.Linear(easy, hard, this.difficultyT);
+      }
+
+      onDifficultyChanged(_t) {
+        // Override in game scenes.
+      }
+
+      startSpawnLoop(callback, easyDelay, hardDelay) {
+        this._spawnCallback = callback;
+        this._spawnEasyDelay = easyDelay;
+        this._spawnHardDelay = hardDelay;
+        this.scheduleNextSpawn();
+      }
+
+      scheduleNextSpawn() {
+        if (this.spawnLoopEvent) this.spawnLoopEvent.remove(false);
+        if (this.gameEnded) return;
+        const delay = Math.round(this.diff(this._spawnEasyDelay, this._spawnHardDelay));
+        this.spawnLoopEvent = this.time.addEvent({
+          delay,
+          callback: () => {
+            if (this.gameEnded) return;
+            this._spawnCallback();
+            this.scheduleNextSpawn();
+          }
+        });
+      }
+
+      createHudTimer() {
+        updateGameHud(this.score, this.timeLeft);
+        this.timerEvent = this.time.addEvent({
+          delay: 1000,
+          loop: true,
+          callback: () => {
+            if (this.gameEnded) return;
+            this.timeLeft--;
+            updateGameHud(this.score, this.timeLeft);
+            if (this.timeLeft <= 0) this.endGame("Time's up!");
+          }
+        });
+      }
+
+      addScore(delta) {
+        this.score += delta;
+        updateGameHud(this.score, this.timeLeft);
+      }
+
+      endGame(reason) {
+        if (this.gameEnded) return;
+        this.gameEnded = true;
+        if (this.timerEvent) this.timerEvent.remove(false);
+        if (this.difficultyEvent) this.difficultyEvent.remove(false);
+        if (this.spawnLoopEvent) this.spawnLoopEvent.remove(false);
+        this.physics.pause();
+        this.input.enabled = false;
+        state.score = this.score;
+        showGameOver(this.score, reason);
+      }
+
+      fitSprite(sprite, maxDim) {
+        const tex = sprite.texture.getSourceImage();
+        if (!tex || !tex.width) {
+          sprite.setDisplaySize(maxDim, maxDim);
+          return;
+        }
+        const ratio = tex.width / tex.height;
+        if (ratio >= 1) sprite.setDisplaySize(maxDim, maxDim / ratio);
+        else sprite.setDisplaySize(maxDim * ratio, maxDim);
+      }
+    }
+
+    class BootScene extends Phaser.Scene {
+      constructor() { super('BootScene'); }
+
+      preload() {
+        Object.entries(ASSET_FILES).forEach(([key, file]) => {
+          this.load.image(key, file);
+        });
+        this.load.image('twixWhole', ASSET_FILES.twixWhole);
+        this.load.image('twixLeft', ASSET_FILES.twixLeft);
+        this.load.image('twixRight', ASSET_FILES.twixRight);
+        this.load.image('itemBomb', ASSET_FILES.itemBomb);
+        this.load.on('loaderror', (fileObj) => {
+          console.error('Failed to load asset:', fileObj.key, fileObj.url);
+        });
+        this.load.on('complete', () => {
+          ['twixWhole', 'twixLeft', 'twixRight', 'itemBomb'].forEach((key) => {
+            if (!this.textures.exists(key)) {
+              console.error('Twix asset missing after preload:', key);
+            }
+          });
+        });
+      }
+
+      create() {
+        this.scene.start('CountdownScene');
+      }
+    }
+
+    class CountdownScene extends Phaser.Scene {
+      constructor() { super('CountdownScene'); }
+
+      create() {
+        const w = this.scale.width;
+        const h = this.scale.height;
+        this.cameras.main.setBackgroundColor('rgba(20, 12, 8, 0.92)');
+
+        this.add.rectangle(w / 2, h / 2, w, h, 0x000000, 0.45);
+        this.add.text(w / 2, h * 0.32, 'Get Ready!', {
+          fontFamily: 'system-ui, sans-serif',
+          fontSize: Math.round(w * 0.07) + 'px',
+          fontStyle: '700',
+          color: 'rgba(255,255,255,0.75)'
+        }).setOrigin(0.5);
+
+        const numText = this.add.text(w / 2, h * 0.5, '', {
+          fontFamily: 'system-ui, sans-serif',
+          fontSize: Math.round(w * 0.22) + 'px',
+          fontStyle: '900',
+          color: '#ffffff'
+        }).setOrigin(0.5);
+
+        const steps = ['3', '2', '1', 'GO!'];
+        let step = 0;
+
+        const showStep = () => {
+          if (step >= steps.length) {
+            this.cameras.main.fadeOut(350, 0, 0, 0);
+            this.time.delayedCall(380, () => {
+              const target = this.registry.get('targetScene');
+              this.scene.start(target);
+            });
+            return;
+          }
+          const label = steps[step];
+          numText.setText(label);
+          numText.setColor(label === 'GO!' ? '#d4a056' : '#ffffff');
+          numText.setScale(0.35);
+          numText.setAlpha(0);
+          this.tweens.add({
+            targets: numText,
+            scale: 1,
+            alpha: 1,
+            duration: 320,
+            ease: 'Back.easeOut'
+          });
+          step++;
+          this.time.delayedCall(1000, showStep);
+        };
+
+        this.time.delayedCall(500, showStep);
+      }
+    }
+
+    class MMSGameScene extends BaseGameScene {
+      constructor() { super('MMSGameScene'); }
+
+      create() {
+        const w = this.scale.width;
+        const h = this.scale.height;
+        this.cameras.main.setBackgroundColor('#1a0820');
+
+        this.physics.world.setBounds(0, 0, w, h);
+        this.physics.resume();
+        this.baseGravity = { easy: 240, hard: 520 };
+
+        this.targetIndex = 0;
+        this.candies = this.physics.add.group();
+
+        this.promptBg = this.add.rectangle(w / 2, 110, w, 90, 0x000000, 0.55);
+        this.promptText = this.add.text(w / 2, 95, '', {
+          fontFamily: 'system-ui, sans-serif',
+          fontSize: '22px',
+          fontStyle: '800',
+          color: '#ffffff'
+        }).setOrigin(0.5);
+
+        this.targetIcon = this.add.image(w / 2, 135, MM_COLORS[0].key);
+        this.fitSprite(this.targetIcon, Math.min(w * 0.08, 40));
+
+        this.pickNewTarget();
+        this.time.addEvent({ delay: 7000, loop: true, callback: () => this.pickNewTarget() });
+        this.startSpawnLoop(() => this.spawnCandy(), 1200, 480);
+        this.startDifficultyRamp();
+        this.createHudTimer();
+      }
+
+      onDifficultyChanged(t) {
+        this.physics.world.gravity.y = this.diff(this.baseGravity.easy, this.baseGravity.hard);
+      }
+
+      pickNewTarget() {
+        let next;
+        do {
+          next = Phaser.Math.Between(0, MM_COLORS.length - 1);
+        } while (next === this.targetIndex && MM_COLORS.length > 1);
+        this.targetIndex = next;
+        const target = MM_COLORS[this.targetIndex];
+        this.promptText.setText('Pop ONLY ' + target.name.toUpperCase() + '!');
+        this.targetIcon.setTexture(target.key);
+        this.fitSprite(this.targetIcon, Math.min(this.scale.width * 0.08, 40));
+      }
+
+      spawnCandy() {
+        if (this.gameEnded) return;
+        const color = Phaser.Utils.Array.GetRandom(MM_COLORS);
+        const x = Phaser.Math.Between(40, this.scale.width - 40);
+        const candy = this.physics.add.image(x, -30, color.key);
+        this.fitSprite(candy, Math.min(this.scale.width * 0.12, 56));
+        candy.setCircle(candy.displayWidth * 0.42);
+        candy.setBounce(0.1);
+        candy.setData('colorName', color.name);
+        candy.setData('juiceColor', color.hex);
+        candy.setInteractive({ useHandCursor: true });
+        candy.on('pointerdown', () => this.popCandy(candy));
+        this.candies.add(candy);
+      }
+
+      popCandy(candy) {
+        if (!candy.active || this.gameEnded) return;
+        const colorName = candy.getData('colorName');
+        const juiceColor = candy.getData('juiceColor');
+        const x = candy.x;
+        const y = candy.y;
+
+        this.tweens.add({
+          targets: candy,
+          scaleX: candy.scaleX * 1.35,
+          scaleY: candy.scaleY * 0.35,
+          alpha: 0,
+          duration: 120,
+          onComplete: () => candy.destroy()
+        });
+
+        const particles = this.add.particles(x, y, 'mRed', {
+          speed: { min: 80, max: 220 },
+          scale: { start: 0.35, end: 0 },
+          lifespan: 450,
+          quantity: 10,
+          tint: juiceColor,
+          emitting: false
+        });
+        particles.explode(12);
+        this.time.delayedCall(500, () => particles.destroy());
+
+        if (colorName === MM_COLORS[this.targetIndex].name) this.addScore(1);
+        else this.addScore(-1);
+      }
+
+      update() {
+        this.candies.children.each(c => {
+          if (c.y > this.scale.height + 80) c.destroy();
+        });
+      }
+    }
+
+    class SnickersGameScene extends BaseGameScene {
+      constructor() { super('SnickersGameScene'); }
+
+      create() {
+        const w = this.scale.width;
+        const h = this.scale.height;
+        this.cameras.main.setBackgroundColor('#1a0f05');
+
+        this.physics.world.setBounds(0, 0, w, h);
+        this.physics.resume();
+        this.baseGravity = { easy: 190, hard: 380 };
+        this.bombChance = { easy: 0.08, hard: 0.14 };
+
+        this.items = this.physics.add.group();
+
+        this.basket = this.physics.add.image(w / 2, h - 90, 'basket');
+        this.basket.setImmovable(true);
+        this.basket.body.allowGravity = false;
+        this.fitSprite(this.basket, Math.min(w * 0.34, 130));
+        this.basket.setInteractive({ draggable: true });
+        this.input.setDraggable(this.basket);
+
+        this.input.on('drag', (_pointer, obj, dragX) => {
+          const half = obj.displayWidth / 2;
+          obj.x = Phaser.Math.Clamp(dragX, half + 8, w - half - 8);
+        });
+
+        this.physics.add.overlap(this.basket, this.items, this.catchItem, null, this);
+
+        this.add.text(w / 2, 130, 'Drag basket — catch peanuts & caramel, avoid bombs!', {
+          fontFamily: 'system-ui, sans-serif',
+          fontSize: '15px',
+          color: 'rgba(255,255,255,0.75)',
+          align: 'center',
+          wordWrap: { width: w - 40 }
+        }).setOrigin(0.5);
+
+        this.startSpawnLoop(() => this.spawnItem(), 1150, 680);
+        this.startDifficultyRamp();
+        this.createHudTimer();
+      }
+
+      onDifficultyChanged(t) {
+        this.physics.world.gravity.y = this.diff(this.baseGravity.easy, this.baseGravity.hard);
+      }
+
+      spawnItem() {
+        if (this.gameEnded) return;
+        const roll = Math.random();
+        const bombRate = this.diff(this.bombChance.easy, this.bombChance.hard);
+        let key, kind, points, size;
+        if (roll < bombRate) {
+          key = 'itemBomb'; kind = 'bad'; points = 0; size = 48;
+        } else if (roll < 0.55) {
+          key = 'itemPeanut'; kind = 'good'; points = 1; size = 50;
+        } else {
+          key = 'itemCaramel'; kind = 'good'; points = 2; size = 52;
+        }
+
+        const x = Phaser.Math.Between(40, this.scale.width - 40);
+        const item = this.physics.add.image(x, -40, key);
+        this.fitSprite(item, Math.min(this.scale.width * 0.11, size));
+        item.setCircle(Math.min(item.displayWidth, item.displayHeight) * 0.42);
+        item.setData('kind', kind);
+        item.setData('points', points);
+        item.setData('label', key);
+        this.items.add(item);
+      }
+
+      catchItem(basket, item) {
+        if (!item.active || this.gameEnded) return;
+        if (item.getData('kind') === 'bad') {
+          const boom = this.add.particles(item.x, item.y, 'itemBomb', {
+            speed: { min: 100, max: 280 },
+            scale: { start: 0.5, end: 0 },
+            lifespan: 500,
+            quantity: 14,
+            tint: [0xff3b30, 0xff9500, 0x333333],
+            emitting: false
+          });
+          boom.explode(16);
+          item.destroy();
+          this.time.delayedCall(350, () => this.endGame('Caught a bomb!'));
+          return;
+        }
+        this.addScore(item.getData('points'));
+        item.destroy();
+      }
+
+      update() {
+        this.items.children.each(item => {
+          if (item.y > this.scale.height + 60) item.destroy();
+        });
+      }
+    }
+
+    class TwixGameScene extends BaseGameScene {
+      constructor() { super('TwixGameScene'); }
+
+      create() {
+        const w = this.scale.width;
+        const h = this.scale.height;
+        this.cameras.main.setBackgroundColor('#2c1810');
+
+        this.physics.world.setBounds(0, 0, w, h);
+        this.physics.resume();
+        this.baseGravity = { easy: 260, hard: 540 };
+        this.peakHeightRatio = {
+          easy: { min: 0.54, max: 0.60 },
+          hard: { min: 0.62, max: 0.70 }
+        };
+        this.hLaunchSpread = { easy: 0.07, hard: 0.13 };
+        this.bombChance = { easy: 0.08, hard: 0.14 };
+        this.doubleSpawnChance = { easy: 0.08, hard: 0.32 };
+
+        ['twixWhole', 'twixLeft', 'twixRight', 'itemBomb'].forEach((key) => {
+          if (!this.textures.exists(key)) {
+            console.error('Twix scene missing texture:', key);
+          }
+        });
+
+        this.flying = this.physics.add.group();
+        this.halves = this.physics.add.group();
+        this.slashing = false;
+        this.trailPoints = [];
+        this.trailGfx = this.add.graphics().setDepth(20);
+
+        const particleKey = this.textures.exists('twixWhole') ? 'twixWhole' : 'mRed';
+        this.chocoEmitter = this.add.particles(0, 0, particleKey, {
+          speed: { min: 60, max: 200 },
+          angle: { min: 0, max: 360 },
+          scale: { start: 0.25, end: 0 },
+          lifespan: 500,
+          quantity: 8,
+          tint: [0xd4a056, 0x8b6914, 0xf5deb3],
+          emitting: false
+        });
+
+        this.input.on('pointerdown', (pointer) => {
+          this.slashing = true;
+          this.trailPoints = [{ x: pointer.x, y: pointer.y }];
+          this.trailGfx.clear();
+        });
+
+        this.input.on('pointermove', (pointer) => {
+          if (!this.slashing || this.gameEnded) return;
+          const prev = this.trailPoints[this.trailPoints.length - 1];
+          this.trailPoints.push({ x: pointer.x, y: pointer.y });
+          if (this.trailPoints.length > 24) this.trailPoints.shift();
+          this.drawTrail();
+          this.checkSlice(prev.x, prev.y, pointer.x, pointer.y);
+        });
+
+        this.input.on('pointerup', () => {
+          this.slashing = false;
+          this.trailGfx.clear();
+          this.trailPoints = [];
+        });
+
+        this.startSpawnLoop(() => {
+          this.spawnFlying(false);
+          if (Math.random() < this.diff(this.doubleSpawnChance.easy, this.doubleSpawnChance.hard)) {
+            this.spawnFlying(false);
+          }
+        }, 1400, 780);
+        this.startDifficultyRamp();
+        this.time.delayedCall(300, () => this.spawnFlying(false));
+        this.createHudTimer();
+      }
+
+      onDifficultyChanged(t) {
+        this.physics.world.gravity.y = this.diff(this.baseGravity.easy, this.baseGravity.hard);
+      }
+
+      computeLaunchVy(spawnY, screenH) {
+        const g = Math.max(this.physics.world.gravity.y, 120);
+        const peakMin = this.diff(this.peakHeightRatio.easy.min, this.peakHeightRatio.hard.min);
+        const peakMax = this.diff(this.peakHeightRatio.easy.max, this.peakHeightRatio.hard.max);
+        const peakRatio = Phaser.Math.FloatBetween(peakMin, peakMax);
+        const yPeak = screenH * (1 - peakRatio);
+        const rise = Math.max(spawnY - yPeak, screenH * 0.28);
+        return -Math.sqrt(2 * g * rise);
+      }
+
+      spawnFlying(forceBomb) {
+        if (this.gameEnded) return;
+        const w = this.scale.width;
+        const h = this.scale.height;
+        const bombRate = this.diff(this.bombChance.easy, this.bombChance.hard);
+        const isBomb = forceBomb || Math.random() < bombRate;
+        const key = isBomb ? 'itemBomb' : 'twixWhole';
+        if (!this.textures.exists(key)) return;
+
+        const maxDim = isBomb ? Math.min(w * 0.11, 52) : Math.min(w * 0.16, 76);
+        const spawnX = Phaser.Math.Between(Math.round(w * 0.12), Math.round(w * 0.88));
+        const spawnY = h + Math.round(maxDim * 0.45);
+
+        const obj = this.physics.add.image(spawnX, spawnY, key);
+        this.fitSprite(obj, maxDim);
+        obj.setDepth(10);
+        obj.setCircle(Math.min(obj.displayWidth, obj.displayHeight) * 0.45);
+        obj.setBounce(0.05);
+        obj.setCollideWorldBounds(false);
+        obj.setData('isBomb', isBomb);
+        this.flying.add(obj);
+
+        const vy = this.computeLaunchVy(spawnY, h);
+        const vxSpread = Math.round(w * this.diff(this.hLaunchSpread.easy, this.hLaunchSpread.hard));
+        obj.setVelocity(
+          Phaser.Math.Between(-vxSpread, vxSpread),
+          vy
+        );
+        obj.setAngularVelocity(
+          Phaser.Math.Between(-220, 220) * this.diff(0.45, 1)
+        );
+      }
+
+      drawTrail() {
+        this.trailGfx.clear();
+        const pts = this.trailPoints;
+        if (pts.length < 2) return;
+        for (let i = 1; i < pts.length; i++) {
+          const alpha = i / pts.length;
+          this.trailGfx.lineStyle(10 * alpha + 2, 0xffffff, alpha * 0.85);
+          this.trailGfx.beginPath();
+          this.trailGfx.moveTo(pts[i - 1].x, pts[i - 1].y);
+          this.trailGfx.lineTo(pts[i].x, pts[i].y);
+          this.trailGfx.strokePath();
+          this.trailGfx.lineStyle(6 * alpha + 1, 0xd4a056, alpha * 0.9);
+          this.trailGfx.beginPath();
+          this.trailGfx.moveTo(pts[i - 1].x, pts[i - 1].y);
+          this.trailGfx.lineTo(pts[i].x, pts[i].y);
+          this.trailGfx.strokePath();
+        }
+      }
+
+      checkSlice(x1, y1, x2, y2) {
+        const toCheck = [];
+        this.flying.children.each(c => { if (c.active) toCheck.push(c); });
+
+        for (let i = toCheck.length - 1; i >= 0; i--) {
+          const obj = toCheck[i];
+          const r = Math.min(obj.displayWidth, obj.displayHeight) * 0.45;
+          if (!segmentIntersectsCircle(x1, y1, x2, y2, obj.x, obj.y, r)) continue;
+
+          if (obj.getData('isBomb')) {
+            this.chocoEmitter.setPosition(obj.x, obj.y);
+            this.chocoEmitter.explode(20);
+            const boom = this.add.particles(obj.x, obj.y, 'itemBomb', {
+              speed: { min: 120, max: 300 },
+              scale: { start: 0.45, end: 0 },
+              lifespan: 550,
+              quantity: 12,
+              tint: [0xff3b30, 0xff9500],
+              emitting: false
+            });
+            boom.explode(14);
+            obj.destroy();
+            this.endGame('Sliced a bomb!');
+            return;
+          }
+
+          this.sliceTwix(obj, x2 - x1, y2 - y1);
+        }
+      }
+
+      sliceTwix(obj, sx, sy) {
+        const x = obj.x;
+        const y = obj.y;
+        const vx = obj.body.velocity.x;
+        const vy = obj.body.velocity.y;
+        const spin = obj.body.angularVelocity;
+        const halfSize = Math.min(obj.displayWidth, obj.displayHeight) * 0.52;
+
+        obj.destroy();
+        this.addScore(10);
+        this.chocoEmitter.setPosition(x, y);
+        this.chocoEmitter.explode(16);
+
+        const len = Math.hypot(sx, sy) || 1;
+        const nx = -sy / len;
+        const ny = sx / len;
+        const push = 180;
+
+        const left = this.physics.add.image(x - nx * 10, y - ny * 10, 'twixLeft');
+        const right = this.physics.add.image(x + nx * 10, y + ny * 10, 'twixRight');
+        this.fitSprite(left, halfSize);
+        this.fitSprite(right, halfSize);
+        left.setDepth(11);
+        right.setDepth(11);
+        this.halves.add(left);
+        this.halves.add(right);
+        left.setVelocity(vx - nx * push, vy - ny * push - 80);
+        right.setVelocity(vx + nx * push, vy + ny * push - 80);
+        left.setAngularVelocity(spin - 120);
+        right.setAngularVelocity(spin + 120);
+      }
+
+      update() {
+        const h = this.scale.height;
+        this.flying.children.each(o => {
+          if (o.y > h + 120 || o.y < -(h * 0.15)) o.destroy();
+        });
+        this.halves.children.each(p => {
+          if (p.y > h + 80) p.destroy();
+        });
+      }
+    }
+
+    function launchGame(className) {
+      const brand = CONFIG.BRAND_INFO[className];
+      if (!brand || !brand.scene) return;
+
+      assertPhaserLoaded();
+      destroyPhaserGame();
+
+      document.body.classList.remove('brand-detected');
+      els.brandAlert.classList.remove('visible');
+      els.gameOver.classList.remove('visible');
+
+      const gameDuration = brand.gameMode === 'twix-slicer'
+        ? CONFIG.TWIX_GAME_DURATION_SEC
+        : CONFIG.GAME_DURATION_SEC;
+
+      state.gameActive = true;
+      state.score = 0;
+      updateGameHud(0, gameDuration);
+      els.hudScore.textContent = brand.title;
+      els.gameLayer.classList.add('active');
+      els.gameHud.classList.add('active');
+      els.hud.style.opacity = '0';
+      els.hud.style.pointerEvents = 'none';
+      els.scanHint.classList.add('hidden');
+      els.demoPicker.classList.remove('visible');
+
+      state.phaserGame = new Phaser.Game({
+        type: Phaser.AUTO,
+        parent: 'phaser-root',
+        width: window.innerWidth,
+        height: window.innerHeight,
+        backgroundColor: '#2c1810',
+        scale: {
+          mode: Phaser.Scale.RESIZE,
+          autoCenter: Phaser.Scale.CENTER_BOTH,
+          width: window.innerWidth,
+          height: window.innerHeight
+        },
+        physics: {
+          default: 'arcade',
+          arcade: { gravity: { y: 0 }, debug: false }
+        },
+        callbacks: {
+          preBoot: (game) => {
+            game.registry.set('targetScene', brand.scene);
+            game.registry.set('gameDuration', gameDuration);
+          }
+        },
+        scene: [BootScene, CountdownScene, MMSGameScene, SnickersGameScene, TwixGameScene]
+      });
+    }
+
+    function returnToScanner() {
+      destroyPhaserGame();
+      state.gameActive = false;
+      state.score = 0;
+      els.gameLayer.classList.remove('active');
+      els.gameHud.classList.remove('active');
+      els.gameOver.classList.remove('visible');
+      els.hud.style.opacity = '';
+      els.hud.style.pointerEvents = '';
+      els.scanHint.classList.remove('hidden');
+      els.hudScore.textContent = 'Scan';
+      if (state.demoMode) els.demoPicker.classList.add('visible');
+      clearTrigger();
+    }
+
+    function showLoading(text) {
+      els.loadingText.textContent = text;
+      els.loading.classList.add('visible');
+    }
+
+    function hideLoading() {
+      els.loading.classList.remove('visible');
+    }
+
+    els.startBtn.addEventListener('click', startApp);
+    els.scanAgainBtn.addEventListener('click', returnToScanner);
+
+    els.demoToggle.addEventListener('click', () => {
+      state.demoMode = !state.demoMode;
+      els.demoToggle.textContent = state.demoMode ? 'Demo Mode: ON' : 'Enable Demo Mode';
+      if (state.demoMode) {
+        els.demoPicker.classList.add('visible');
+        setDemoClass('Other', 0.5);
+      } else {
+        els.demoPicker.classList.remove('visible');
+      }
+    });
+
+    els.demoPicker.querySelectorAll('.demo-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (!state.demoMode) return;
+        setDemoClass(btn.dataset.class, 0.95);
+      });
+    });
+
+    document.body.addEventListener('touchmove', (e) => {
+      if (state.gameActive) e.preventDefault();
+    }, { passive: false });
+
+    initClassChips();
+    CONFIG.CLASSES.forEach(cls => { state.predictions[cls] = 0; });
+    state.predictions['Other'] = 1;
+
+    try {
+      assertLibrariesLoaded();
+      assertPhaserLoaded();
+      els.startBtn.textContent = 'Start Camera';
+    } catch (err) {
+      console.error(err);
+      els.startBtn.disabled = true;
+      els.startBtn.textContent = 'Libraries failed to load';
+      alert('Could not load required libraries.\n\n' + err.message);
+    }
+  </script>
+</body>
+</html>

@@ -9,7 +9,6 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8.5/dist/teachablemachine-image.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
 
   <style>
     :root {
@@ -114,32 +113,53 @@
       text-shadow: 0 2px 18px rgba(0, 0, 0, 0.55);
     }
 
-    #game-layer {
+    /* ── Game overlay (iframe + placeholder) ── */
+    #game-overlay {
       position: absolute;
       inset: 0;
       z-index: 40;
       display: none;
-      touch-action: none;
+      background: #000;
     }
 
-    #game-layer.active { display: block; }
+    #game-overlay.active { display: block; }
 
-    #phaser-root {
-      position: absolute;
-      inset: 0;
+    #game-iframe {
       width: 100%;
       height: 100%;
-      touch-action: none;
-    }
-
-    #phaser-root canvas {
+      border: none;
       display: block;
-      width: 100% !important;
-      height: 100% !important;
-      image-rendering: auto;
-      -webkit-font-smoothing: antialiased;
+      -webkit-overflow-scrolling: touch;
     }
 
+    #mars-placeholder {
+      position: absolute;
+      inset: 0;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(145deg, #1a0a04, #2e1506);
+      text-align: center;
+      padding: 32px;
+      gap: 20px;
+    }
+
+    #mars-placeholder.visible { display: flex; }
+
+    #mars-placeholder h2 {
+      font-size: clamp(28px, 8vw, 48px);
+      font-weight: 900;
+      color: #fff;
+      text-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
+    }
+
+    #mars-placeholder p {
+      font-size: 16px;
+      color: var(--muted);
+    }
+
+    /* ── Countdown ── */
     #game-countdown {
       position: absolute;
       inset: 0;
@@ -193,31 +213,7 @@
       to { transform: scale(1); opacity: 1; }
     }
 
-    #game-over {
-      position: absolute;
-      inset: 0;
-      z-index: 42;
-      display: none;
-      align-items: center;
-      justify-content: center;
-      background: rgba(0, 0, 0, 0.82);
-      backdrop-filter: blur(12px);
-      padding: 24px;
-    }
-
-    #game-over.visible { display: flex; flex-direction: column; }
-
-    .game-over-card { text-align: center; max-width: 320px; }
-    .game-over-card h2 { font-size: clamp(32px, 8vw, 48px); font-weight: 900; margin-bottom: 8px; }
-    .game-over-card p { color: var(--muted); margin-bottom: 8px; font-size: 16px; }
-
-    #game-over-score {
-      font-size: 28px;
-      font-weight: 800;
-      color: #fff;
-      margin-bottom: 24px !important;
-    }
-
+    /* ── Start screen ── */
     #start-screen {
       position: absolute;
       inset: 0;
@@ -342,29 +338,27 @@
 
     <div id="scanner-ui">
       <div id="status-title">Point at a product</div>
-      <div id="status-subtitle">Hold M&amp;Ms, Twix, or Snickers in front of the camera to unlock a game</div>
+      <div id="status-subtitle">Hold M&amp;Ms, Bounty, or Mars in front of the camera to unlock a game</div>
     </div>
 
-    <div id="game-layer">
-      <div id="phaser-root"></div>
-      <div id="game-countdown" aria-live="polite">
-        <div class="countdown-ready" id="countdown-ready">Get Ready!</div>
-        <div class="countdown-number" id="countdown-number"></div>
+    <div id="game-overlay">
+      <iframe id="game-iframe" allow="autoplay; fullscreen" allowfullscreen></iframe>
+      <div id="mars-placeholder">
+        <h2>Mars Game<br>Coming Soon!</h2>
+        <p>We're building something special for Mars.</p>
+        <button class="btn-primary" id="mars-scan-again-btn" type="button">Scan Again</button>
       </div>
-      <div id="game-over">
-        <div class="game-over-card">
-          <h2>Game Over</h2>
-          <p id="game-over-reason">Time's up!</p>
-          <p id="game-over-score">Score: 0</p>
-          <button class="btn-primary" id="scan-again-btn" type="button">Scan Again</button>
-        </div>
-      </div>
+    </div>
+
+    <div id="game-countdown" aria-live="polite">
+      <div class="countdown-ready" id="countdown-ready">Get Ready!</div>
+      <div class="countdown-number" id="countdown-number"></div>
     </div>
 
     <div id="demo-picker">
       <button class="demo-btn" data-class="M&Ms">🟡 M&amp;Ms</button>
-      <button class="demo-btn" data-class="Twix">🍫 Twix</button>
-      <button class="demo-btn" data-class="Snickers">🥜 Snickers</button>
+      <button class="demo-btn" data-class="Bounty">🥥 Bounty</button>
+      <button class="demo-btn" data-class="Mars">🍫 Mars</button>
       <button class="demo-btn" data-class="Other">⬜ Other</button>
     </div>
 
@@ -383,62 +377,17 @@
 
   <script>
     const CONFIG = {
-      MODEL_URL: 'https://teachablemachine.withgoogle.com/models/rt4oYzfrD/',
+      MODEL_URL: 'https://teachablemachine.withgoogle.com/models/c_gOK8GJo/',
       CONFIDENCE_THRESHOLD: 0.85,
       DETECTION_INTERVAL_MS: 200,
-      TRIGGER_HOLD_MS: 1000,
-      GAME_DURATION_SEC: 60,
-      TWIX_GAME_DURATION_SEC: 60,
-      CLASSES: ['M&Ms', 'Snickers', 'Twix', 'Other'],
-      CANDY_CLASSES: ['M&Ms', 'Snickers', 'Twix'],
+      TRIGGER_HOLD_MS: 1500,
+      CLASSES: ['M&Ms', 'Bounty', 'Mars', 'Other'],
+      CANDY_CLASSES: ['M&Ms', 'Bounty', 'Mars'],
       BRAND_INFO: {
-        'M&Ms': {
-          color: '#ff3b30',
-          title: 'M&Ms Color Popper',
-          gameMode: 'mms-color-popper',
-          scene: 'MMSGameScene'
-        },
-        'Snickers': {
-          color: '#8B4513',
-          title: 'Snickers Basket Catch',
-          gameMode: 'snickers-basket',
-          scene: 'SnickersGameScene'
-        },
-        'Twix': {
-          color: '#d4a056',
-          title: 'Twix Slicer',
-          gameMode: 'twix-slicer',
-          scene: 'TwixGameScene'
-        },
-        'Other': {
-          color: '#636366',
-          title: 'Scan a Product',
-          gameMode: null,
-          scene: null
-        }
+        'M&Ms':  { gameSrc: 'mms.html' },
+        'Bounty': { gameSrc: 'bounty.html' },
+        'Mars':   { gameSrc: null }
       }
-    };
-
-    const MM_COLORS = [
-      { name: 'Red', key: 'mRed', hex: 0xff3b30 },
-      { name: 'Yellow', key: 'mYellow', hex: 0xffcc00 },
-      { name: 'Blue', key: 'mBlue', hex: 0x007aff }
-    ];
-
-    const ASSET_FILES = {
-      mRed: 'm_red.png',
-      mYellow: 'm_yellow.png',
-      mBlue: 'm_blue.png',
-      basket: 'basket.png',
-      itemPeanut: 'item_peanut.png',
-      itemCaramel: 'item_caramel.png',
-      itemBomb: 'item_bomb.png',
-      twixWhole: 'twix_whole.png',
-      twixLeft: 'twix_left.png',
-      twixRight: 'twix_right.png',
-      bgMms: 'm_background.png',
-      bgSnickers: 'snickers_background.png',
-      bgTwix: 'twix_background.png'
     };
 
     const state = {
@@ -450,12 +399,9 @@
       currentConfidence: 0,
       predictions: {},
       gameActive: false,
-      phaserGame: null,
       triggerTimer: null,
       triggerClass: null,
-      detectionRunning: false,
-      score: 0,
-      pendingSceneKey: null
+      detectionRunning: false
     };
 
     const $ = (sel) => document.querySelector(sel);
@@ -470,20 +416,18 @@
       statusTitle: $('#status-title'),
       statusSubtitle: $('#status-subtitle'),
       demoPicker: $('#demo-picker'),
-      gameLayer: $('#game-layer'),
-      phaserRoot: $('#phaser-root'),
+      gameOverlay: $('#game-overlay'),
+      gameIframe: $('#game-iframe'),
+      marsPlaceholder: $('#mars-placeholder'),
+      marsScanAgainBtn: $('#mars-scan-again-btn'),
       gameCountdown: $('#game-countdown'),
       countdownReady: $('#countdown-ready'),
       countdownNumber: $('#countdown-number'),
-      gameOver: $('#game-over'),
-      gameOverReason: $('#game-over-reason'),
-      gameOverScore: $('#game-over-score'),
-      scanAgainBtn: $('#scan-again-btn'),
       predictCanvas: $('#predict-canvas')
     };
 
     // ═══════════════════════════════════════════════════════════════
-    // Camera & prediction (unchanged working logic)
+    // Camera & prediction (working logic — untouched)
     // ═══════════════════════════════════════════════════════════════
 
     function assertLibrariesLoaded() {
@@ -496,18 +440,11 @@
       return { tf: window.tf, tmImage: window.tmImage };
     }
 
-    function assertPhaserLoaded() {
-      if (typeof window.Phaser === 'undefined') {
-        throw new Error('Phaser.js failed to load. Check your internet connection.');
-      }
-    }
-
     async function startApp() {
       els.startScreen.classList.add('hidden');
       showLoading('Starting camera…');
       try {
         assertLibrariesLoaded();
-        assertPhaserLoaded();
         await initWebcam();
         await initModel();
         hideLoading();
@@ -555,6 +492,10 @@
       detectLoop();
     }
 
+    function pauseDetection() {
+      state.detectionRunning = false;
+    }
+
     async function detectLoop() {
       if (!state.detectionRunning) return;
       if (!state.gameActive) {
@@ -585,6 +526,10 @@
       state.currentConfidence = topProb;
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    // Detection → trigger → countdown → game launch
+    // ═══════════════════════════════════════════════════════════════
+
     function getMatchedCandy() {
       let matchedCandy = null;
       let matchedConfidence = 0;
@@ -601,7 +546,7 @@
     function resetScannerPrompt() {
       els.statusTitle.textContent = 'Point at a product';
       els.statusTitle.classList.remove('detected');
-      els.statusSubtitle.textContent = 'Hold M&Ms, Twix, or Snickers in front of the camera to unlock a game';
+      els.statusSubtitle.textContent = 'Hold M&Ms, Bounty, or Mars in front of the camera to unlock a game';
     }
 
     function setDemoClass(className, confidence = 0.95) {
@@ -645,95 +590,8 @@
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // Phaser helpers & game engine
+    // Countdown overlay
     // ═══════════════════════════════════════════════════════════════
-
-    const UI_FONT = 'Arial, Helvetica, sans-serif';
-
-    function getPhaserDpr() {
-      return Math.min(Math.max(window.devicePixelRatio || 1, 1), 3);
-    }
-
-    function getPhaserSize() {
-      const dpr = getPhaserDpr();
-      return {
-        dpr,
-        width: Math.round(window.innerWidth * dpr),
-        height: Math.round(window.innerHeight * dpr)
-      };
-    }
-
-    function applyPhaserCanvasCss() {
-      if (!els.phaserRoot) return;
-      els.phaserRoot.style.width = window.innerWidth + 'px';
-      els.phaserRoot.style.height = window.innerHeight + 'px';
-    }
-
-    function crispTextStyle(fontSize, color = '#ffffff') {
-      const size = Math.round(fontSize);
-      return {
-        fontFamily: UI_FONT,
-        fontSize: size + 'px',
-        fontStyle: 'bold',
-        color,
-        stroke: '#000000',
-        strokeThickness: Math.max(5, Math.round(size * 0.14)),
-        shadow: {
-          offsetX: 2,
-          offsetY: 2,
-          color: '#000000',
-          blur: 3,
-          fill: true
-        },
-        padding: { x: Math.round(size * 0.35), y: Math.round(size * 0.22) }
-      };
-    }
-
-    function relayoutTextPanel(container) {
-      const label = container.label;
-      const padX = container.padX;
-      const padY = container.padY;
-      const size = parseFloat(String(label.style.fontSize)) || 24;
-      const bw = label.width + padX * 2;
-      const bh = label.height + padY * 2;
-      const radius = Math.min(22, size * 0.45);
-      container.panel.clear();
-      container.panel.fillStyle(0x000000, 0.62);
-      container.panel.fillRoundedRect(-bw / 2, -bh / 2, bw, bh, radius);
-      container.panel.lineStyle(2, 0xffffff, 0.16);
-      container.panel.strokeRoundedRect(-bw / 2, -bh / 2, bw, bh, radius);
-    }
-
-    function createTextPanel(scene, x, y, text, fontSize, depth = 200, color = '#ffffff') {
-      const label = scene.add.text(0, 0, text, crispTextStyle(fontSize, color)).setOrigin(0.5);
-      const padX = Math.max(18, fontSize * 0.55);
-      const padY = Math.max(12, fontSize * 0.35);
-      const panel = scene.add.graphics();
-      const container = scene.add.container(x, y, [panel, label]).setDepth(depth);
-      container.label = label;
-      container.panel = panel;
-      container.padX = padX;
-      container.padY = padY;
-      relayoutTextPanel(container);
-      return container;
-    }
-
-    function segmentIntersectsCircle(x1, y1, x2, y2, cx, cy, r) {
-      const dx = x2 - x1;
-      const dy = y2 - y1;
-      const fx = x1 - cx;
-      const fy = y1 - cy;
-      const a = dx * dx + dy * dy;
-      if (a === 0) return Math.hypot(fx, fy) <= r;
-      const b = 2 * (fx * dx + fy * dy);
-      const c = fx * fx + fy * fy - r * r;
-      const disc = b * b - 4 * a * c;
-      if (disc < 0) return false;
-      const sqrtDisc = Math.sqrt(disc);
-      const t1 = (-b - sqrtDisc) / (2 * a);
-      const t2 = (-b + sqrtDisc) / (2 * a);
-      return (t1 >= 0 && t1 <= 1) || (t2 >= 0 && t2 <= 1);
-    }
 
     function hideCountdownOverlay() {
       els.gameCountdown.classList.remove('visible', 'fade-out');
@@ -782,708 +640,67 @@
       playStep();
     }
 
-    function showGameOver(finalScore, reason) {
-      els.gameOverReason.textContent = reason || "Time's up!";
-      els.gameOverScore.textContent = 'Score: ' + finalScore;
-      els.gameOver.classList.add('visible');
-    }
-
-    function destroyPhaserGame() {
-      if (state.phaserGame) {
-        try {
-          state.phaserGame.destroy(true);
-        } catch (e) {
-          console.warn('Phaser destroy:', e);
-        }
-        state.phaserGame = null;
-      }
-      if (els.phaserRoot) els.phaserRoot.innerHTML = '';
-      hideCountdownOverlay();
-    }
-
-    function beginPendingGameplay() {
-      const sceneKey = state.pendingSceneKey;
-      if (!sceneKey || !state.phaserGame) return;
-      const tryStart = () => {
-        const scene = state.phaserGame.scene.getScene(sceneKey);
-        if (scene && scene.beginGameplay) {
-          scene.beginGameplay();
-        } else {
-          setTimeout(tryStart, 40);
-        }
-      };
-      tryStart();
-    }
-
-    class BaseGameScene extends Phaser.Scene {
-      init() {
-        this.score = 0;
-        this.timeLeft = this.registry.get('gameDuration') || CONFIG.GAME_DURATION_SEC;
-        this.gameEnded = false;
-        this.gameplayStarted = false;
-        this.difficultyStartTime = null;
-        this.difficultyT = 0;
-        this.spawnLoopEvent = null;
-        this.difficultyEvent = null;
-      }
-
-      beginGameplay() {
-        if (this.gameplayStarted || this.gameEnded) return;
-        this.gameplayStarted = true;
-        this.physics.resume();
-        this.onBeginGameplay();
-      }
-
-      onBeginGameplay() {}
-
-      startDifficultyRamp() {
-        this.difficultyStartTime = this.time.now;
-        this.difficultyT = 0;
-        this.onDifficultyChanged(0);
-        if (this.difficultyEvent) this.difficultyEvent.remove(false);
-        this.difficultyEvent = this.time.addEvent({
-          delay: 2000,
-          loop: true,
-          callback: () => {
-            if (this.gameEnded) return;
-            const elapsed = (this.time.now - this.difficultyStartTime) / 1000;
-            let t = 0;
-            if (elapsed >= 10) {
-              const steps = Math.floor((elapsed - 10) / 4);
-              t = Math.min(1, steps * 0.14 + 0.12);
-            }
-            if (Math.abs(t - this.difficultyT) > 0.001) {
-              this.difficultyT = t;
-              this.onDifficultyChanged(t);
-            }
-          }
-        });
-      }
-
-      diff(easy, hard) {
-        return Phaser.Math.Linear(easy, hard, this.difficultyT);
-      }
-
-      onDifficultyChanged(_t) {}
-
-      startSpawnLoop(callback, easyDelay, hardDelay) {
-        this._spawnCallback = callback;
-        this._spawnEasyDelay = easyDelay;
-        this._spawnHardDelay = hardDelay;
-        this.scheduleNextSpawn();
-      }
-
-      scheduleNextSpawn() {
-        if (this.spawnLoopEvent) this.spawnLoopEvent.remove(false);
-        if (this.gameEnded) return;
-        const delay = Math.round(this.diff(this._spawnEasyDelay, this._spawnHardDelay));
-        this.spawnLoopEvent = this.time.addEvent({
-          delay,
-          callback: () => {
-            if (this.gameEnded) return;
-            this._spawnCallback();
-            this.scheduleNextSpawn();
-          }
-        });
-      }
-
-      createHudTimer() {
-        this.createPhaserHud();
-        this.refreshHud();
-        this.timerEvent = this.time.addEvent({
-          delay: 1000,
-          loop: true,
-          callback: () => {
-            if (this.gameEnded) return;
-            this.timeLeft--;
-            this.refreshHud();
-            if (this.timeLeft <= 0) this.endGame("Time's up!");
-          }
-        });
-      }
-
-      addScore(delta) {
-        this.score += delta;
-        this.refreshHud();
-      }
-
-      endGame(reason) {
-        if (this.gameEnded) return;
-        this.gameEnded = true;
-        if (this.timerEvent) this.timerEvent.remove(false);
-        if (this.difficultyEvent) this.difficultyEvent.remove(false);
-        if (this.spawnLoopEvent) this.spawnLoopEvent.remove(false);
-        this.physics.pause();
-        this.input.enabled = false;
-        state.score = this.score;
-        showGameOver(this.score, reason);
-      }
-
-      fitSprite(sprite, maxDim) {
-        const tex = sprite.texture.getSourceImage();
-        if (!tex || !tex.width) {
-          sprite.setDisplaySize(maxDim, maxDim);
-          return;
-        }
-        const ratio = tex.width / tex.height;
-        if (ratio >= 1) sprite.setDisplaySize(maxDim, maxDim / ratio);
-        else sprite.setDisplaySize(maxDim * ratio, maxDim);
-      }
-
-      setCoverBackground(textureKey, fallbackColor) {
-        if (this.bgImage) {
-          this.bgImage.destroy();
-          this.bgImage = null;
-        }
-        if (this._bgResizeHandler) {
-          this.scale.off('resize', this._bgResizeHandler);
-          this._bgResizeHandler = null;
-        }
-        if (!this.textures.exists(textureKey)) {
-          this.cameras.main.setBackgroundColor(fallbackColor || '#000000');
-          return;
-        }
-        this.bgImage = this.add.image(0, 0, textureKey).setDepth(0);
-        this.refreshCoverBackground();
-        this._bgResizeHandler = () => this.refreshCoverBackground();
-        this.scale.on('resize', this._bgResizeHandler);
-        this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
-          if (this._bgResizeHandler) this.scale.off('resize', this._bgResizeHandler);
-        });
-      }
-
-      refreshCoverBackground() {
-        if (!this.bgImage || !this.bgImage.active) return;
-        const w = this.scale.width;
-        const h = this.scale.height;
-        const tex = this.bgImage.texture.getSourceImage();
-        if (!tex || !tex.width) return;
-        this.bgImage.setPosition(w / 2, h / 2);
-        this.bgImage.setScale(Math.max(w / tex.width, h / tex.height));
-      }
-
-      createPhaserHud() {
-        const w = this.scale.width;
-        const timerSize = Math.max(28, w * 0.048);
-        const scoreSize = Math.max(26, w * 0.042);
-        const topInset = Math.max(22, w * 0.04);
-
-        this.hudTimerContainer = createTextPanel(
-          this, topInset + 56, topInset + 22, this.timeLeft + 's', timerSize, 250
-        );
-        this.hudScoreContainer = createTextPanel(
-          this, w - topInset - 96, topInset + 22, 'Score: ' + this.score, scoreSize, 250
-        );
-        this.hudTimerText = this.hudTimerContainer.label;
-        this.hudScoreText = this.hudScoreContainer.label;
-
-        if (this._hudResizeHandler) this.scale.off('resize', this._hudResizeHandler);
-        this._hudResizeHandler = () => this.layoutPhaserHud();
-        this.scale.on('resize', this._hudResizeHandler);
-        this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
-          if (this._hudResizeHandler) this.scale.off('resize', this._hudResizeHandler);
-        });
-        this.layoutPhaserHud();
-      }
-
-      layoutPhaserHud() {
-        if (!this.hudTimerContainer || !this.hudScoreContainer) return;
-        const w = this.scale.width;
-        const topInset = Math.max(22, w * 0.04);
-        const timerSize = Math.max(28, w * 0.048);
-        const scoreSize = Math.max(26, w * 0.042);
-
-        this.hudTimerText.setStyle(crispTextStyle(timerSize));
-        this.hudTimerText.setText(this.timeLeft + 's');
-        this.hudScoreText.setStyle(crispTextStyle(scoreSize));
-        this.hudScoreText.setText('Score: ' + this.score);
-        this.hudTimerContainer.setPosition(topInset + 56, topInset + 22);
-        this.hudScoreContainer.setPosition(w - topInset - 96, topInset + 22);
-        relayoutTextPanel(this.hudTimerContainer);
-        relayoutTextPanel(this.hudScoreContainer);
-      }
-
-      refreshHud() {
-        if (!this.hudTimerText) return;
-        this.hudTimerText.setText(this.timeLeft + 's');
-        this.hudScoreText.setText('Score: ' + this.score);
-        relayoutTextPanel(this.hudTimerContainer);
-        relayoutTextPanel(this.hudScoreContainer);
-      }
-
-      spawnColorShards(x, y, color) {
-        const shardCount = Phaser.Math.Between(10, 15);
-        for (let i = 0; i < shardCount; i++) {
-          const radius = Phaser.Math.FloatBetween(4, 9);
-          const circle = new Phaser.Geom.Circle(0, 0, radius);
-          const gfx = this.add.graphics({ x, y }).setDepth(35);
-          gfx.fillStyle(color, 1);
-          gfx.fillCircleShape(circle);
-          const angle = Phaser.Math.FloatBetween(0, Math.PI * 2);
-          const dist = Phaser.Math.Between(70, 200);
-          this.tweens.add({
-            targets: gfx,
-            x: x + Math.cos(angle) * dist,
-            y: y + Math.sin(angle) * dist,
-            alpha: 0,
-            scaleX: 0.2,
-            scaleY: 0.2,
-            duration: Phaser.Math.Between(320, 520),
-            ease: 'Cubic.easeOut',
-            onComplete: () => gfx.destroy()
-          });
-        }
-      }
-    }
-
-    class BootScene extends Phaser.Scene {
-      constructor() { super('BootScene'); }
-
-      preload() {
-        Object.entries(ASSET_FILES).forEach(([key, file]) => {
-          this.load.image(key, file);
-        });
-        this.load.on('loaderror', (fileObj) => {
-          console.error('Failed to load asset:', fileObj.key, fileObj.url);
-        });
-      }
-
-      create() {
-        const target = this.registry.get('targetScene');
-        this.scene.start(target);
-      }
-    }
-
-    class MMSGameScene extends BaseGameScene {
-      constructor() { super('MMSGameScene'); }
-
-      create() {
-        const w = this.scale.width;
-        const h = this.scale.height;
-        this.setCoverBackground('bgMms', '#1a0820');
-        this.physics.world.setBounds(0, 0, w, h);
-        this.physics.pause();
-        this.baseGravity = { easy: 240, hard: 520 };
-
-        this.targetIndex = 0;
-        this.candies = this.physics.add.group();
-
-        const promptSize = Math.max(22, w * 0.042);
-        this.promptPanel = createTextPanel(this, w / 2, 130, '', promptSize, 40);
-        this.promptText = this.promptPanel.label;
-
-        this.targetIcon = this.add.image(w / 2, 175, MM_COLORS[0].key).setDepth(41);
-        this.fitSprite(this.targetIcon, Math.min(w * 0.08, 56 * getPhaserDpr()));
-
-        this.pickNewTarget();
-      }
-
-      onBeginGameplay() {
-        this.time.addEvent({ delay: 7000, loop: true, callback: () => this.pickNewTarget() });
-        this.startSpawnLoop(() => this.spawnCandy(), 1200, 480);
-        this.startDifficultyRamp();
-        this.createHudTimer();
-      }
-
-      onDifficultyChanged(_t) {
-        this.physics.world.gravity.y = this.diff(this.baseGravity.easy, this.baseGravity.hard);
-      }
-
-      pickNewTarget() {
-        let next;
-        do {
-          next = Phaser.Math.Between(0, MM_COLORS.length - 1);
-        } while (next === this.targetIndex && MM_COLORS.length > 1);
-        this.targetIndex = next;
-        const target = MM_COLORS[this.targetIndex];
-        this.promptText.setText('Pop ONLY ' + target.name.toUpperCase() + '!');
-        relayoutTextPanel(this.promptPanel);
-        this.targetIcon.setTexture(target.key);
-        this.fitSprite(this.targetIcon, Math.min(this.scale.width * 0.08, 56 * getPhaserDpr()));
-      }
-
-      spawnCandy() {
-        if (this.gameEnded || !this.gameplayStarted) return;
-        const color = Phaser.Utils.Array.GetRandom(MM_COLORS);
-        const w = this.scale.width;
-        const x = Phaser.Math.Between(40, w - 40);
-        const candy = this.physics.add.image(x, -30, color.key).setDepth(15);
-        this.fitSprite(candy, Math.min(w * 0.12, 56 * getPhaserDpr()));
-        candy.setCircle(candy.displayWidth * 0.42);
-        candy.setBounce(0.1);
-        candy.setData('colorName', color.name);
-        candy.setData('juiceColor', color.hex);
-        candy.setInteractive({ useHandCursor: true });
-        candy.on('pointerdown', () => this.popCandy(candy));
-        this.candies.add(candy);
-      }
-
-      popCandy(candy) {
-        if (!candy.active || this.gameEnded) return;
-        const colorName = candy.getData('colorName');
-        const juiceColor = candy.getData('juiceColor');
-        const x = candy.x;
-        const y = candy.y;
-
-        candy.disableBody(true, true);
-        candy.destroy();
-
-        this.spawnColorShards(x, y, juiceColor);
-
-        if (colorName === MM_COLORS[this.targetIndex].name) this.addScore(1);
-        else this.addScore(-1);
-      }
-
-      update() {
-        this.candies.children.each(c => {
-          if (c.y > this.scale.height + 80) c.destroy();
-        });
-      }
-    }
-
-    class SnickersGameScene extends BaseGameScene {
-      constructor() { super('SnickersGameScene'); }
-
-      create() {
-        const w = this.scale.width;
-        const h = this.scale.height;
-        this.setCoverBackground('bgSnickers', '#1a0f05');
-        this.physics.world.setBounds(0, 0, w, h);
-        this.physics.pause();
-        this.baseGravity = { easy: 190, hard: 380 };
-        this.bombChance = { easy: 0.08, hard: 0.14 };
-
-        this.items = this.physics.add.group();
-
-        this.basket = this.physics.add.image(w / 2, h - 90, 'basket').setDepth(20);
-        this.basket.setImmovable(true);
-        this.basket.body.allowGravity = false;
-        this.fitSprite(this.basket, Math.min(w * 0.34, 130 * getPhaserDpr()));
-        this.basket.setInteractive({ draggable: true });
-        this.input.setDraggable(this.basket);
-
-        this.input.on('drag', (_pointer, obj, dragX) => {
-          const half = obj.displayWidth / 2;
-          obj.x = Phaser.Math.Clamp(dragX, half + 8, w - half - 8);
-        });
-
-        this.physics.add.overlap(this.basket, this.items, this.catchItem, null, this);
-
-        const hintSize = Math.max(18, w * 0.032);
-        createTextPanel(
-          this,
-          w / 2,
-          150,
-          'Drag basket — catch peanuts & caramel, avoid bombs!',
-          hintSize,
-          35,
-          'rgba(255,255,255,0.95)'
-        );
-      }
-
-      onBeginGameplay() {
-        this.startSpawnLoop(() => this.spawnItem(), 1150, 680);
-        this.startDifficultyRamp();
-        this.createHudTimer();
-      }
-
-      onDifficultyChanged(_t) {
-        this.physics.world.gravity.y = this.diff(this.baseGravity.easy, this.baseGravity.hard);
-      }
-
-      spawnItem() {
-        if (this.gameEnded || !this.gameplayStarted) return;
-        const roll = Math.random();
-        const bombRate = this.diff(this.bombChance.easy, this.bombChance.hard);
-        let key, kind, points, size;
-        if (roll < bombRate) {
-          key = 'itemBomb'; kind = 'bad'; points = 0; size = 48;
-        } else if (roll < 0.55) {
-          key = 'itemPeanut'; kind = 'good'; points = 1; size = 50;
-        } else {
-          key = 'itemCaramel'; kind = 'good'; points = 2; size = 52;
-        }
-
-        const w = this.scale.width;
-        const x = Phaser.Math.Between(40, w - 40);
-        const item = this.physics.add.image(x, -40, key).setDepth(15);
-        this.fitSprite(item, Math.min(w * 0.11, size * getPhaserDpr()));
-        item.setCircle(Math.min(item.displayWidth, item.displayHeight) * 0.42);
-        item.setData('kind', kind);
-        item.setData('points', points);
-        this.items.add(item);
-      }
-
-      catchItem(_basket, item) {
-        if (!item.active || this.gameEnded) return;
-        if (item.getData('kind') === 'bad') {
-          item.destroy();
-          this.time.delayedCall(300, () => this.endGame('Caught a bomb!'));
-          return;
-        }
-        this.addScore(item.getData('points'));
-        item.destroy();
-      }
-
-      update() {
-        this.items.children.each(item => {
-          if (item.y > this.scale.height + 60) item.destroy();
-        });
-      }
-    }
-
-    class TwixGameScene extends BaseGameScene {
-      constructor() { super('TwixGameScene'); }
-
-      create() {
-        const w = this.scale.width;
-        const h = this.scale.height;
-        this.setCoverBackground('bgTwix', '#2c1810');
-        this.physics.world.setBounds(0, 0, w, h);
-        this.physics.pause();
-        this.baseGravity = { easy: 260, hard: 540 };
-        this.peakHeightRatio = {
-          easy: { min: 0.54, max: 0.60 },
-          hard: { min: 0.62, max: 0.70 }
-        };
-        this.hLaunchSpread = { easy: 0.07, hard: 0.13 };
-        this.bombChance = { easy: 0.08, hard: 0.14 };
-        this.doubleSpawnChance = { easy: 0.08, hard: 0.32 };
-
-        this.flying = this.physics.add.group();
-        this.halves = this.add.group();
-        this.slashing = false;
-        this.trailPoints = [];
-        this.trailGfx = this.add.graphics().setDepth(25);
-
-        this.input.on('pointerdown', (pointer) => {
-          if (!this.gameplayStarted) return;
-          this.slashing = true;
-          this.trailPoints = [{ x: pointer.x, y: pointer.y }];
-          this.trailGfx.clear();
-        });
-
-        this.input.on('pointermove', (pointer) => {
-          if (!this.slashing || this.gameEnded || !this.gameplayStarted) return;
-          const prev = this.trailPoints[this.trailPoints.length - 1];
-          this.trailPoints.push({ x: pointer.x, y: pointer.y });
-          if (this.trailPoints.length > 24) this.trailPoints.shift();
-          this.drawTrail();
-          this.checkSlice(prev.x, prev.y, pointer.x, pointer.y);
-        });
-
-        this.input.on('pointerup', () => {
-          this.slashing = false;
-          this.trailGfx.clear();
-          this.trailPoints = [];
-        });
-      }
-
-      onBeginGameplay() {
-        this.startSpawnLoop(() => {
-          this.spawnFlying(false);
-          if (Math.random() < this.diff(this.doubleSpawnChance.easy, this.doubleSpawnChance.hard)) {
-            this.spawnFlying(false);
-          }
-        }, 1400, 780);
-        this.startDifficultyRamp();
-        this.time.delayedCall(300, () => this.spawnFlying(false));
-        this.createHudTimer();
-      }
-
-      onDifficultyChanged(_t) {
-        this.physics.world.gravity.y = this.diff(this.baseGravity.easy, this.baseGravity.hard);
-      }
-
-      computeLaunchVy(spawnY, screenH) {
-        const g = Math.max(this.physics.world.gravity.y, 120);
-        const peakMin = this.diff(this.peakHeightRatio.easy.min, this.peakHeightRatio.hard.min);
-        const peakMax = this.diff(this.peakHeightRatio.easy.max, this.peakHeightRatio.hard.max);
-        const peakRatio = Phaser.Math.FloatBetween(peakMin, peakMax);
-        const yPeak = screenH * (1 - peakRatio);
-        const rise = Math.max(spawnY - yPeak, screenH * 0.28);
-        return -Math.sqrt(2 * g * rise);
-      }
-
-      spawnFlying(forceBomb) {
-        if (this.gameEnded || !this.gameplayStarted) return;
-        const w = this.scale.width;
-        const h = this.scale.height;
-        const bombRate = this.diff(this.bombChance.easy, this.bombChance.hard);
-        const isBomb = forceBomb || Math.random() < bombRate;
-        const key = isBomb ? 'itemBomb' : 'twixWhole';
-        if (!this.textures.exists(key)) return;
-
-        const maxDim = isBomb ? Math.min(w * 0.11, 52 * getPhaserDpr()) : Math.min(w * 0.16, 76 * getPhaserDpr());
-        const spawnX = Phaser.Math.Between(Math.round(w * 0.12), Math.round(w * 0.88));
-        const spawnY = h + Math.round(maxDim * 0.45);
-
-        const obj = this.physics.add.image(spawnX, spawnY, key);
-        this.fitSprite(obj, maxDim);
-        obj.setDepth(10);
-        obj.setCircle(Math.min(obj.displayWidth, obj.displayHeight) * 0.45);
-        obj.setBounce(0.05);
-        obj.setCollideWorldBounds(false);
-        obj.setData('isBomb', isBomb);
-        this.flying.add(obj);
-
-        const vy = this.computeLaunchVy(spawnY, h);
-        const vxSpread = Math.round(w * this.diff(this.hLaunchSpread.easy, this.hLaunchSpread.hard));
-        obj.setVelocity(Phaser.Math.Between(-vxSpread, vxSpread), vy);
-        obj.setAngularVelocity(Phaser.Math.Between(-220, 220) * this.diff(0.45, 1));
-      }
-
-      drawTrail() {
-        this.trailGfx.clear();
-        const pts = this.trailPoints;
-        if (pts.length < 2) return;
-        for (let i = 1; i < pts.length; i++) {
-          const alpha = i / pts.length;
-          this.trailGfx.lineStyle(10 * alpha + 2, 0xffffff, alpha * 0.85);
-          this.trailGfx.beginPath();
-          this.trailGfx.moveTo(pts[i - 1].x, pts[i - 1].y);
-          this.trailGfx.lineTo(pts[i].x, pts[i].y);
-          this.trailGfx.strokePath();
-          this.trailGfx.lineStyle(6 * alpha + 1, 0xd4a056, alpha * 0.9);
-          this.trailGfx.beginPath();
-          this.trailGfx.moveTo(pts[i - 1].x, pts[i - 1].y);
-          this.trailGfx.lineTo(pts[i].x, pts[i].y);
-          this.trailGfx.strokePath();
-        }
-      }
-
-      checkSlice(x1, y1, x2, y2) {
-        const toCheck = [];
-        this.flying.children.each(c => { if (c.active) toCheck.push(c); });
-
-        for (let i = toCheck.length - 1; i >= 0; i--) {
-          const obj = toCheck[i];
-          const r = Math.min(obj.displayWidth, obj.displayHeight) * 0.45;
-          if (!segmentIntersectsCircle(x1, y1, x2, y2, obj.x, obj.y, r)) continue;
-
-          if (obj.getData('isBomb')) {
-            obj.destroy();
-            this.endGame('Sliced a bomb!');
-            return;
-          }
-
-          this.sliceTwix(obj);
-        }
-      }
-
-      sliceTwix(obj) {
-        const x = obj.x;
-        const y = obj.y;
-        const halfSize = Math.min(obj.displayWidth, obj.displayHeight) * 0.52;
-
-        obj.destroy();
-        this.addScore(10);
-
-        const left = this.physics.add.image(x, y, 'twixLeft');
-        const right = this.physics.add.image(x, y, 'twixRight');
-        this.fitSprite(left, halfSize);
-        this.fitSprite(right, halfSize);
-        left.setDepth(12);
-        right.setDepth(12);
-        left.body.setAllowGravity(true);
-        right.body.setAllowGravity(true);
-        left.body.setImmovable(false);
-        right.body.setImmovable(false);
-
-        this.halves.add(left);
-        this.halves.add(right);
-
-        left.setVelocity(-220, -280);
-        right.setVelocity(220, -280);
-        left.setAngularVelocity(-260);
-        right.setAngularVelocity(260);
-      }
-
-      update() {
-        const h = this.scale.height;
-        this.flying.children.each(o => {
-          if (o.y > h + 120 || o.y < -(h * 0.15)) o.destroy();
-        });
-        this.halves.children.each(p => {
-          if (p.y > h + 80 || p.y < -(h * 0.1)) p.destroy();
-        });
-      }
-    }
-
-    function buildPhaserGameConfig(brand, gameDuration) {
-      const { width, height } = getPhaserSize();
-      applyPhaserCanvasCss();
-      return {
-        type: Phaser.AUTO,
-        parent: 'phaser-root',
-        width,
-        height,
-        backgroundColor: '#2c1810',
-        antialias: true,
-        render: {
-          antialias: true,
-          antialiasGL: true,
-          pixelArt: false,
-          roundPixels: false,
-          powerPreference: 'high-performance'
-        },
-        scale: {
-          mode: Phaser.Scale.RESIZE,
-          autoCenter: Phaser.Scale.CENTER_BOTH,
-          width,
-          height
-        },
-        physics: {
-          default: 'arcade',
-          arcade: { gravity: { y: 0 }, debug: false }
-        },
-        callbacks: {
-          preBoot: (game) => {
-            game.registry.set('targetScene', brand.scene);
-            game.registry.set('gameDuration', gameDuration);
-          }
-        },
-        scene: [BootScene, MMSGameScene, SnickersGameScene, TwixGameScene]
-      };
-    }
+    // ═══════════════════════════════════════════════════════════════
+    // Game launch & reset (iframe overlay)
+    // ═══════════════════════════════════════════════════════════════
 
     function launchGame(className) {
       const brand = CONFIG.BRAND_INFO[className];
-      if (!brand || !brand.scene) return;
+      if (!brand) return;
 
-      assertPhaserLoaded();
-      destroyPhaserGame();
       clearTrigger();
-
-      const gameDuration = brand.gameMode === 'twix-slicer'
-        ? CONFIG.TWIX_GAME_DURATION_SEC
-        : CONFIG.GAME_DURATION_SEC;
-
       state.gameActive = true;
-      state.score = 0;
-      state.pendingSceneKey = brand.scene;
 
       els.scannerUi.classList.add('hidden');
-      els.gameOver.classList.remove('visible');
-      els.gameLayer.classList.add('active');
       els.demoPicker.classList.remove('visible');
 
-      state.phaserGame = new Phaser.Game(buildPhaserGameConfig(brand, gameDuration));
-      runHtmlCountdown(() => beginPendingGameplay());
+      runHtmlCountdown(() => {
+        pauseDetection();
+        showGameOverlay(className, brand);
+      });
+    }
+
+    function showGameOverlay(className, brand) {
+      els.marsPlaceholder.classList.remove('visible');
+      els.gameIframe.src = '';
+
+      if (brand.gameSrc) {
+        els.gameIframe.style.display = 'block';
+        els.gameIframe.src = brand.gameSrc;
+      } else {
+        els.gameIframe.style.display = 'none';
+        els.marsPlaceholder.classList.add('visible');
+      }
+
+      els.gameOverlay.classList.add('active');
     }
 
     function returnToScanner() {
-      destroyPhaserGame();
+      els.gameOverlay.classList.remove('active');
+      els.gameIframe.src = '';
+      els.gameIframe.style.display = 'block';
+      els.marsPlaceholder.classList.remove('visible');
+      hideCountdownOverlay();
+
       state.gameActive = false;
-      state.score = 0;
-      state.pendingSceneKey = null;
-      els.gameLayer.classList.remove('active');
-      els.gameOver.classList.remove('visible');
+      state.triggerClass = null;
+
       els.scannerUi.classList.remove('hidden');
       resetScannerPrompt();
       if (state.demoMode) els.demoPicker.classList.add('visible');
-      clearTrigger();
+
+      startDetection();
     }
+
+    window.addEventListener('message', function (event) {
+      if (event.data && event.data.action === 'resetGame') {
+        returnToScanner();
+      }
+    });
+
+    // ═══════════════════════════════════════════════════════════════
+    // UI helpers
+    // ═══════════════════════════════════════════════════════════════
 
     function showLoading(text) {
       els.loadingText.textContent = text;
@@ -1494,10 +711,12 @@
       els.loading.classList.remove('visible');
     }
 
-    window.addEventListener('resize', applyPhaserCanvasCss);
+    // ═══════════════════════════════════════════════════════════════
+    // Event wiring
+    // ═══════════════════════════════════════════════════════════════
 
     els.startBtn.addEventListener('click', startApp);
-    els.scanAgainBtn.addEventListener('click', returnToScanner);
+    els.marsScanAgainBtn.addEventListener('click', returnToScanner);
 
     els.demoToggle.addEventListener('click', () => {
       state.demoMode = !state.demoMode;
@@ -1526,7 +745,6 @@
 
     try {
       assertLibrariesLoaded();
-      assertPhaserLoaded();
       els.startBtn.textContent = 'Start Camera';
     } catch (err) {
       console.error(err);

@@ -94,6 +94,38 @@
     box-shadow:0 6px 0 #c9a72e;transition:transform .08s, box-shadow .08s;
   }
   .btn:active{transform:translateY(4px);box-shadow:0 2px 0 #c9a72e;}
+  .scan-again-btn{
+    appearance:none;
+    -webkit-appearance:none;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    margin-top:4px;
+    min-height:52px;
+    min-width:220px;
+    padding:14px 36px;
+    border:none;
+    border-radius:999px;
+    font-family:inherit;
+    font-size:17px;
+    font-weight:700;
+    letter-spacing:.04em;
+    color:#fff;
+    background:linear-gradient(135deg,#ff4d3d 0%,#ff7a3c 100%);
+    box-shadow:0 10px 28px rgba(255,77,61,.42), inset 0 1px 0 rgba(255,255,255,.28);
+    cursor:pointer;
+    -webkit-tap-highlight-color:transparent;
+    touch-action:manipulation;
+    transition:transform .12s ease, box-shadow .12s ease, filter .12s ease;
+  }
+  .scan-again-btn:hover{
+    filter:brightness(1.06);
+    box-shadow:0 12px 32px rgba(255,77,61,.5), inset 0 1px 0 rgba(255,255,255,.32);
+  }
+  .scan-again-btn:active{
+    transform:scale(.97);
+    box-shadow:0 6px 16px rgba(255,77,61,.35);
+  }
   #finalScore{font-size:clamp(56px,20vw,88px);font-weight:700;color:#ffe27a;line-height:1;text-shadow:0 5px 0 rgba(0,0,0,.2);}
   #overReason{color:#fff;font-weight:600;font-size:16px;opacity:.95;}
   #best{color:#fff;opacity:.75;font-size:13px;font-weight:500;}
@@ -129,6 +161,7 @@
     <div id="finalScore">0</div>
     <div id="best"></div>
     <button class="btn" id="againBtn">Play again</button>
+    <button id="close-game-btn" class="scan-again-btn">Scan Again</button>
   </div>
 </div>
 
@@ -161,6 +194,11 @@ const bestEl      = document.getElementById('best');
 
 document.getElementById('startBtn').addEventListener('click', () => beginCountdown());
 document.getElementById('againBtn').addEventListener('click', () => beginCountdown());
+document.getElementById('close-game-btn').addEventListener('click', function() {
+    if (window.parent) {
+        window.parent.postMessage({ action: 'resetGame' }, '*');
+    }
+});
 
 // ---------- sizing ----------
 let W=0,H=0,DPR=1;

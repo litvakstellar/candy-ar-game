@@ -116,6 +116,38 @@
     transition:transform .08s ease;
   }
   .btn:active{ transform:translateY(3px); border-bottom-width:2px; }
+  .scan-again-btn{
+    appearance:none;
+    -webkit-appearance:none;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    margin-top:16px;
+    min-height:52px;
+    min-width:220px;
+    padding:14px 36px;
+    border:none;
+    border-radius:999px;
+    font-family:inherit;
+    font-size:17px;
+    font-weight:800;
+    letter-spacing:.04em;
+    color:#fff;
+    background:linear-gradient(135deg,#ff4d3d 0%,#ff7a3c 100%);
+    box-shadow:0 10px 28px rgba(255,77,61,.42), inset 0 1px 0 rgba(255,255,255,.28);
+    cursor:pointer;
+    -webkit-tap-highlight-color:transparent;
+    touch-action:manipulation;
+    transition:transform .12s ease, box-shadow .12s ease, filter .12s ease;
+  }
+  .scan-again-btn:hover{
+    filter:brightness(1.06);
+    box-shadow:0 12px 32px rgba(255,77,61,.5), inset 0 1px 0 rgba(255,255,255,.32);
+  }
+  .scan-again-btn:active{
+    transform:scale(.97);
+    box-shadow:0 6px 16px rgba(255,77,61,.35);
+  }
   .legend{
     display:flex; gap:16px; margin-top:22px; font-size:11px; color:#eafff6;
     flex-wrap:wrap; justify-content:center; max-width:300px;
@@ -160,6 +192,7 @@
     <div id="finalScore">Score: 0</div>
     <div id="bestMsg" class="subtitle" style="margin-bottom:10px;"></div>
     <button class="btn" id="retryBtn">↻ TRY AGAIN</button>
+    <button id="close-game-btn" class="scan-again-btn">Scan Again</button>
   </div>
 
   <div id="controlsHint">← → arrow keys or A/D · tilt on mobile</div>
@@ -788,6 +821,11 @@
   retryBtn.addEventListener('click', ()=>{
     gameOverScreen.classList.add('hidden');
     resetGame();
+  });
+  document.getElementById('close-game-btn').addEventListener('click', function() {
+      if (window.parent) {
+          window.parent.postMessage({ action: 'resetGame' }, '*');
+      }
   });
 
   // idle background preview before start

@@ -113,7 +113,7 @@
       text-shadow: 0 2px 18px rgba(0, 0, 0, 0.55);
     }
 
-    /* ── Game overlay (iframe + placeholder) ── */
+    /* ── Game overlay (full-screen iframe) ── */
     #game-overlay {
       position: absolute;
       inset: 0;
@@ -130,33 +130,6 @@
       border: none;
       display: block;
       -webkit-overflow-scrolling: touch;
-    }
-
-    #mars-placeholder {
-      position: absolute;
-      inset: 0;
-      display: none;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      background: linear-gradient(145deg, #1a0a04, #2e1506);
-      text-align: center;
-      padding: 32px;
-      gap: 20px;
-    }
-
-    #mars-placeholder.visible { display: flex; }
-
-    #mars-placeholder h2 {
-      font-size: clamp(28px, 8vw, 48px);
-      font-weight: 900;
-      color: #fff;
-      text-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
-    }
-
-    #mars-placeholder p {
-      font-size: 16px;
-      color: var(--muted);
     }
 
 
@@ -290,11 +263,6 @@
 
     <div id="game-overlay">
       <iframe id="game-iframe" allow="autoplay; fullscreen" allowfullscreen></iframe>
-      <div id="mars-placeholder">
-        <h2>Mars Game<br>Coming Soon!</h2>
-        <p>We're building something special for Mars.</p>
-        <button class="btn-primary" id="mars-scan-again-btn" type="button">Scan Again</button>
-      </div>
     </div>
 
 
@@ -329,7 +297,7 @@
       BRAND_INFO: {
         'M&Ms':  { gameSrc: 'mms.html' },
         'Bounty': { gameSrc: 'bounty.html' },
-        'Mars':   { gameSrc: null }
+        'Mars':   { gameSrc: 'mars.html' }
       }
     };
 
@@ -361,8 +329,6 @@
       demoPicker: $('#demo-picker'),
       gameOverlay: $('#game-overlay'),
       gameIframe: $('#game-iframe'),
-      marsPlaceholder: $('#mars-placeholder'),
-      marsScanAgainBtn: $('#mars-scan-again-btn'),
       predictCanvas: $('#predict-canvas')
     };
 
@@ -467,7 +433,7 @@
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // Detection → trigger → countdown → game launch
+    // Detection → 1s hold → instant iframe launch
     // ═══════════════════════════════════════════════════════════════
 
     function getMatchedCandy() {
@@ -535,7 +501,7 @@
 
     function launchGame(className) {
       const brand = CONFIG.BRAND_INFO[className];
-      if (!brand) return;
+      if (!brand || !brand.gameSrc) return;
 
       clearTrigger();
       state.gameActive = true;
@@ -544,31 +510,16 @@
       els.scannerUi.classList.add('hidden');
       els.demoPicker.classList.remove('visible');
 
-      showGameOverlay(className, brand);
-    }
-
-    function showGameOverlay(className, brand) {
-      els.marsPlaceholder.classList.remove('visible');
-      els.gameIframe.src = '';
-
-      if (brand.gameSrc) {
-        els.gameIframe.style.display = 'block';
-        els.gameIframe.src = brand.gameSrc;
-      } else {
-        els.gameIframe.style.display = 'none';
-        els.marsPlaceholder.classList.add('visible');
-      }
-
+      els.gameIframe.src = brand.gameSrc;
       els.gameOverlay.classList.add('active');
     }
 
     function returnToScanner() {
       els.gameOverlay.classList.remove('active');
       els.gameIframe.src = '';
-      els.gameIframe.style.display = 'block';
-      els.marsPlaceholder.classList.remove('visible');
       state.gameActive = false;
       state.triggerClass = null;
+      clearTrigger();
 
       els.scannerUi.classList.remove('hidden');
       resetScannerPrompt();
@@ -601,7 +552,6 @@
     // ═══════════════════════════════════════════════════════════════
 
     els.startBtn.addEventListener('click', startApp);
-    els.marsScanAgainBtn.addEventListener('click', returnToScanner);
 
     els.demoToggle.addEventListener('click', () => {
       state.demoMode = !state.demoMode;
